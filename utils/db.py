@@ -1,4 +1,4 @@
-import pymysql
+import mysql.connector
 from config import Config
 import os
 import re
@@ -38,7 +38,7 @@ def get_db_connection():
             }
             logger.info(f"🔗 Parámetros de conexión: {connection_params}")
             
-            return pymysql.connect(**connection_params)
+            return mysql.connector.connect(**connection_params)
         else:
             logger.error(f"❌ No se pudo parsear DATABASE_URL: {url}")
             logger.error(f"❌ Pattern no coincidió")
@@ -81,7 +81,7 @@ def get_db_connection():
                             }
                             logger.info(f"🔗 Parámetros de conexión: {connection_params}")
                             
-                            return pymysql.connect(**connection_params)
+                            return mysql.connector.connect(**connection_params)
                 
                 logger.error(f"❌ Parseado manual también falló")
                 
@@ -96,7 +96,7 @@ def get_db_connection():
                 host, database = rest.split('/', 1)
                 
                 logger.info(f"🔄 Usando fallback con host: {host}")
-                return pymysql.connect(
+                return mysql.connector.connect(
                     host=host,
                     user=user,
                     password=password,
@@ -109,7 +109,7 @@ def get_db_connection():
                 user, password = credentials.split(':', 1)
                 
                 logger.info(f"🔄 Usando fallback localhost")
-                return pymysql.connect(
+                return mysql.connector.connect(
                     host='localhost',
                     user=user,
                     password=password,
@@ -119,7 +119,7 @@ def get_db_connection():
     else:
         logger.info("🔄 Usando configuración anterior (sin DATABASE_URL)")
         # Fallback a la configuración anterior
-        return pymysql.connect(
+        return mysql.connector.connect(
             host=Config.DB_HOST,
             user=Config.DB_USER,
             password=Config.DB_PASSWORD,
