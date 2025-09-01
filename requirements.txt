@@ -1,0 +1,21 @@
+# Dependencias para la API de Mapeo Agrícola
+
+# Framework web
+Flask==2.3.3
+Flask-JWT-Extended==4.5.3
+Flask-CORS==4.0.0
+
+# Base de datos
+PyMySQL==1.1.0
+cryptography==41.0.7
+
+# Manejo de archivos Excel
+openpyxl==3.1.2
+pandas==2.1.4
+
+# Utilidades
+python-dotenv==1.0.0
+Werkzeug==2.3.7
+
+# Dependencias adicionales para Cloud Run
+gunicorn==21.2.0
