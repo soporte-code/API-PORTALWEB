@@ -466,13 +466,13 @@ def agregar_hilera_cuartel(cuartel_id):
         user_id = get_jwt_identity()
         data = request.get_json()
         
-        if not data or 'nombre' not in data:
+        if not data or 'hilera' not in data:
             return jsonify({
                 "success": False,
-                "message": "Se requiere el campo 'nombre' para la hilera"
+                "message": "Se requiere el campo 'hilera' para la hilera"
             }), 400
         
-        nombre_hilera = data['nombre']
+        nombre_hilera = data['hilera']
         
         # Obtener conexión a la base de datos
         conn = get_db_connection()
