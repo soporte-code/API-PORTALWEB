@@ -387,8 +387,22 @@ def eliminar_cuartel(cuartel_id):
             "message": "Error interno del servidor"
         }), 500
 
-@cuarteles_bp.route('/cuarteles/<int:cuartel_id>/hileras', methods=['GET'])
+@cuarteles_bp.route('/cuarteles/<int:cuartel_id>/hileras', methods=['GET', 'POST', 'DELETE', 'OPTIONS'])
 @jwt_required()
+def gestionar_hileras_cuartel(cuartel_id):
+    """
+    Gestionar hileras de un cuartel específico (GET, POST, DELETE)
+    """
+    if request.method == 'OPTIONS':
+        return '', 200
+    
+    if request.method == 'GET':
+        return obtener_hileras_cuartel(cuartel_id)
+    elif request.method == 'POST':
+        return agregar_hilera_cuartel(cuartel_id)
+    elif request.method == 'DELETE':
+        return eliminar_hilera_cuartel(cuartel_id)
+
 def obtener_hileras_cuartel(cuartel_id):
     """
     Obtener hileras de un cuartel específico
@@ -438,6 +452,187 @@ def obtener_hileras_cuartel(cuartel_id):
         
     except Exception as e:
         logger.error(f"Error obteniendo hileras del cuartel {cuartel_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor"
+        }), 500
+
+def agregar_hilera_cuartel(cuartel_id):
+    """
+    Agregar una nueva hilera a un cuartel
+    """
+    try:
+        # Obtener usuario logueado
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        if not data or 'nombre' not in data:
+            return jsonify({
+                "success": False,
+                "message": "Se requiere el campo 'nombre' para la hilera"
+            }), 400
+        
+        nombre_hilera = data['nombre']
+        
+        # Obtener conexión a la base de datos
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Verificar acceso al cuartel
+        cursor.execute("""
+            SELECT c.*, COUNT(h.id) as hileras_actuales
+            FROM general_dim_cuartel c
+            LEFT JOIN general_dim_hilera h ON c.id = h.id_cuartel AND h.id_estado = 1
+            LEFT JOIN general_dim_ceco ce ON c.id_ceco = ce.id
+            LEFT JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
+            WHERE c.id = %s 
+            AND s.id IN (
+                SELECT id_sucursal 
+                FROM usuario_pivot_sucursal_usuario 
+                WHERE id_usuario = %s
+            )
+            AND c.id_estado = 1
+            GROUP BY c.id
+        """, (cuartel_id, user_id))
+        
+        cuartel_info = cursor.fetchone()
+        if not cuartel_info:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Cuartel no encontrado o sin acceso"
+            }), 404
+        
+        # Crear la nueva hilera
+        cursor.execute("""
+            INSERT INTO general_dim_hilera (
+                hilera, id_cuartel, id_estado, fecha_creacion
+            ) VALUES (%s, %s, %s, NOW())
+        """, (nombre_hilera, cuartel_id, 1))
+        
+        hilera_id = cursor.lastrowid
+        
+        # Actualizar el número de hileras en el cuartel
+        nuevo_total = cuartel_info['hileras_actuales'] + 1
+        cursor.execute("""
+            UPDATE general_dim_cuartel 
+            SET n_hileras = %s 
+            WHERE id = %s
+        """, (nuevo_total, cuartel_id))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Hilera agregada exitosamente",
+            "data": {
+                "id": hilera_id,
+                "hilera": nombre_hilera,
+                "id_cuartel": cuartel_id,
+                "total_hileras": nuevo_total
+            }
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Error agregando hilera al cuartel {cuartel_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor"
+        }), 500
+
+def eliminar_hilera_cuartel(cuartel_id):
+    """
+    Eliminar una hilera específica de un cuartel
+    """
+    try:
+        # Obtener usuario logueado
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        if not data or 'hilera_id' not in data:
+            return jsonify({
+                "success": False,
+                "message": "Se requiere el campo 'hilera_id' para eliminar la hilera"
+            }), 400
+        
+        hilera_id = data['hilera_id']
+        
+        # Obtener conexión a la base de datos
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Verificar acceso a la hilera
+        cursor.execute("""
+            SELECT h.* FROM general_dim_hilera h
+            INNER JOIN general_dim_cuartel c ON h.id_cuartel = c.id
+            LEFT JOIN general_dim_ceco ce ON c.id_ceco = ce.id
+            LEFT JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
+            WHERE h.id = %s 
+            AND c.id = %s
+            AND s.id IN (
+                SELECT id_sucursal 
+                FROM usuario_pivot_sucursal_usuario 
+                WHERE id_usuario = %s
+            )
+            AND h.id_estado = 1
+        """, (hilera_id, cuartel_id, user_id))
+        
+        hilera_info = cursor.fetchone()
+        if not hilera_info:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Hilera no encontrada o sin acceso"
+            }), 404
+        
+        # Verificar si hay plantas asociadas
+        cursor.execute("""
+            SELECT COUNT(*) as total FROM general_dim_planta 
+            WHERE id_hilera = %s AND id_estado = 1
+        """, (hilera_id,))
+        
+        plantas_count = cursor.fetchone()['total']
+        if plantas_count > 0:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": f"No se puede eliminar la hilera porque tiene {plantas_count} plantas asociadas"
+            }), 400
+        
+        # Desactivar la hilera (soft delete)
+        cursor.execute("""
+            UPDATE general_dim_hilera 
+            SET id_estado = 0
+            WHERE id = %s
+        """, (hilera_id,))
+        
+        # Actualizar el número de hileras en el cuartel
+        cursor.execute("""
+            UPDATE general_dim_cuartel 
+            SET n_hileras = n_hileras - 1
+            WHERE id = %s
+        """, (cuartel_id,))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Hilera eliminada exitosamente",
+            "data": {
+                "hilera_id": hilera_id,
+                "cuartel_id": cuartel_id
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error eliminando hilera {hilera_id} del cuartel {cuartel_id}: {str(e)}")
         return jsonify({
             "success": False,
             "message": "Error interno del servidor"
@@ -497,6 +692,97 @@ def obtener_plantas_cuartel(cuartel_id):
         
     except Exception as e:
         logger.error(f"Error obteniendo plantas del cuartel {cuartel_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor"
+        }), 500
+
+@cuarteles_bp.route('/cuarteles/<int:cuartel_id>/hileras/<int:hilera_id>', methods=['DELETE', 'OPTIONS'])
+@jwt_required()
+def eliminar_hilera_especifica(cuartel_id, hilera_id):
+    """
+    Eliminar una hilera específica de un cuartel
+    """
+    if request.method == 'OPTIONS':
+        return '', 200
+    
+    try:
+        # Obtener usuario logueado
+        user_id = get_jwt_identity()
+        
+        # Obtener conexión a la base de datos
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Verificar acceso a la hilera
+        cursor.execute("""
+            SELECT h.* FROM general_dim_hilera h
+            INNER JOIN general_dim_cuartel c ON h.id_cuartel = c.id
+            LEFT JOIN general_dim_ceco ce ON c.id_ceco = ce.id
+            LEFT JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
+            WHERE h.id = %s 
+            AND c.id = %s
+            AND s.id IN (
+                SELECT id_sucursal 
+                FROM usuario_pivot_sucursal_usuario 
+                WHERE id_usuario = %s
+            )
+            AND h.id_estado = 1
+        """, (hilera_id, cuartel_id, user_id))
+        
+        hilera_info = cursor.fetchone()
+        if not hilera_info:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Hilera no encontrada o sin acceso"
+            }), 404
+        
+        # Verificar si hay plantas asociadas
+        cursor.execute("""
+            SELECT COUNT(*) as total FROM general_dim_planta 
+            WHERE id_hilera = %s AND id_estado = 1
+        """, (hilera_id,))
+        
+        plantas_count = cursor.fetchone()['total']
+        if plantas_count > 0:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": f"No se puede eliminar la hilera porque tiene {plantas_count} plantas asociadas"
+            }), 400
+        
+        # Desactivar la hilera (soft delete)
+        cursor.execute("""
+            UPDATE general_dim_hilera 
+            SET id_estado = 0
+            WHERE id = %s
+        """, (hilera_id,))
+        
+        # Actualizar el número de hileras en el cuartel
+        cursor.execute("""
+            UPDATE general_dim_cuartel 
+            SET n_hileras = n_hileras - 1
+            WHERE id = %s
+        """, (cuartel_id,))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Hilera eliminada exitosamente",
+            "data": {
+                "hilera_id": hilera_id,
+                "cuartel_id": cuartel_id
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error eliminando hilera {hilera_id} del cuartel {cuartel_id}: {str(e)}")
         return jsonify({
             "success": False,
             "message": "Error interno del servidor"
