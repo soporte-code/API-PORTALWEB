@@ -478,13 +478,13 @@ def agregar_hilera_cuartel(cuartel_id):
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         
-        # Verificar acceso al cuartel
+        # Verificar acceso al cuartel usando la misma lógica que GET
         cursor.execute("""
             SELECT c.*, COUNT(h.id) as hileras_actuales
             FROM general_dim_cuartel c
             LEFT JOIN general_dim_hilera h ON c.id = h.id_cuartel AND h.id_estado = 1
-            LEFT JOIN general_dim_ceco ce ON c.id_ceco = ce.id
-            LEFT JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
+            INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
+            INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
             WHERE c.id = %s 
             AND s.id IN (
                 SELECT id_sucursal 
