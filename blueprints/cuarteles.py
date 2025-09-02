@@ -459,7 +459,7 @@ def obtener_hileras_cuartel(cuartel_id):
 
 def agregar_hilera_cuartel(cuartel_id):
     """
-    Agregar una nueva hilera a un cuartel (versión simplificada)
+    Agregar una nueva hilera a un cuartel (versión ultra-simplificada)
     """
     try:
         # Obtener usuario logueado
@@ -478,29 +478,50 @@ def agregar_hilera_cuartel(cuartel_id):
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         
-        # Verificar acceso al cuartel usando la misma lógica que GET
+        # Verificar acceso al cuartel usando EXACTAMENTE la misma lógica que GET
         cursor.execute("""
-            SELECT c.id, c.n_hileras
-            FROM general_dim_cuartel c
-            INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
-            INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
+            SELECT 
+                h.id,
+                h.hilera,
+                h.id_cuartel
+            FROM general_dim_hilera h
+            INNER JOIN general_dim_cuartel c ON h.id_cuartel = c.id
+            LEFT JOIN general_dim_ceco ce ON c.id_ceco = ce.id
+            LEFT JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
             WHERE c.id = %s 
             AND s.id IN (
                 SELECT id_sucursal 
                 FROM usuario_pivot_sucursal_usuario 
                 WHERE id_usuario = %s
             )
-            AND c.id_estado = 1
+            ORDER BY h.hilera
+            LIMIT 1
         """, (cuartel_id, user_id))
         
-        cuartel_info = cursor.fetchone()
-        if not cuartel_info:
-            cursor.close()
-            conn.close()
-            return jsonify({
-                "success": False,
-                "message": "Cuartel no encontrado o sin acceso"
-            }), 404
+        # Si no hay hileras, verificar acceso al cuartel directamente
+        if not cursor.fetchone():
+            cursor.execute("""
+                SELECT c.id
+                FROM general_dim_cuartel c
+                LEFT JOIN general_dim_ceco ce ON c.id_ceco = ce.id
+                LEFT JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
+                WHERE c.id = %s 
+                AND s.id IN (
+                    SELECT id_sucursal 
+                    FROM usuario_pivot_sucursal_usuario 
+                    WHERE id_usuario = %s
+                )
+                AND c.id_estado = 1
+                LIMIT 1
+            """, (cuartel_id, user_id))
+            
+            if not cursor.fetchone():
+                cursor.close()
+                conn.close()
+                return jsonify({
+                    "success": False,
+                    "message": "Cuartel no encontrado o sin acceso"
+                }), 404
         
         # Obtener número actual de hileras
         cursor.execute("""
