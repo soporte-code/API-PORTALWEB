@@ -539,7 +539,25 @@ def agregar_hilera_cuartel(cuartel_id):
             ) VALUES (%s, %s, %s, NOW())
         """, (nombre_hilera, cuartel_id, 1))
         
-        hilera_id = cursor.lastrowid
+        # Obtener el ID de la hilera creada (por si hay trigger)
+        cursor.execute("""
+            SELECT id FROM general_dim_hilera 
+            WHERE hilera = %s AND id_cuartel = %s AND id_estado = 1
+            ORDER BY fecha_creacion DESC
+            LIMIT 1
+        """, (nombre_hilera, cuartel_id))
+        
+        hilera_result = cursor.fetchone()
+        hilera_id = hilera_result['id'] if hilera_result else None
+        
+        if not hilera_id:
+            conn.rollback()
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Error al crear la hilera"
+            }), 500
         
         # Actualizar el número de hileras en el cuartel
         nuevo_total = hileras_actuales + 1
