@@ -17,7 +17,17 @@ def create_app():
     # Configurar CORS
     CORS(app, resources={
         r"/*": {
-            "origins": ["http://localhost:*", "http://127.0.0.1:*", "http://192.168.1.52:*", "http://192.168.1.208:*", "http://192.168.1.60:*"],
+            "origins": [
+                # Dominios de producción Firebase
+                "https://front-portalweb.web.app",
+                "https://front-portalweb.firebaseapp.com",
+                # Dominios de desarrollo local
+                "http://localhost:*", 
+                "http://127.0.0.1:*", 
+                "http://192.168.1.52:*", 
+                "http://192.168.1.208:*", 
+                "http://192.168.1.60:*"
+            ],
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
             "allow_headers": ["Content-Type", "Authorization"],
             "supports_credentials": True,
