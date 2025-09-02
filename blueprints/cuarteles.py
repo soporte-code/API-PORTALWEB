@@ -459,7 +459,7 @@ def obtener_hileras_cuartel(cuartel_id):
 
 def agregar_hilera_cuartel(cuartel_id):
     """
-    Agregar una nueva hilera a un cuartel
+    Agregar una nueva hilera a un cuartel (versión simplificada)
     """
     try:
         # Obtener usuario logueado
@@ -480,9 +480,8 @@ def agregar_hilera_cuartel(cuartel_id):
         
         # Verificar acceso al cuartel usando la misma lógica que GET
         cursor.execute("""
-            SELECT c.*, COUNT(h.id) as hileras_actuales
+            SELECT c.id, c.n_hileras
             FROM general_dim_cuartel c
-            LEFT JOIN general_dim_hilera h ON c.id = h.id_cuartel AND h.id_estado = 1
             INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
             INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
             WHERE c.id = %s 
@@ -492,7 +491,6 @@ def agregar_hilera_cuartel(cuartel_id):
                 WHERE id_usuario = %s
             )
             AND c.id_estado = 1
-            GROUP BY c.id
         """, (cuartel_id, user_id))
         
         cuartel_info = cursor.fetchone()
@@ -504,6 +502,15 @@ def agregar_hilera_cuartel(cuartel_id):
                 "message": "Cuartel no encontrado o sin acceso"
             }), 404
         
+        # Obtener número actual de hileras
+        cursor.execute("""
+            SELECT COUNT(*) as total
+            FROM general_dim_hilera 
+            WHERE id_cuartel = %s AND id_estado = 1
+        """, (cuartel_id,))
+        
+        hileras_actuales = cursor.fetchone()['total']
+        
         # Crear la nueva hilera
         cursor.execute("""
             INSERT INTO general_dim_hilera (
@@ -514,7 +521,7 @@ def agregar_hilera_cuartel(cuartel_id):
         hilera_id = cursor.lastrowid
         
         # Actualizar el número de hileras en el cuartel
-        nuevo_total = cuartel_info['hileras_actuales'] + 1
+        nuevo_total = hileras_actuales + 1
         cursor.execute("""
             UPDATE general_dim_cuartel 
             SET n_hileras = %s 
