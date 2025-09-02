@@ -18,11 +18,14 @@ def create_app():
     CORS(app, resources={
         r"/*": {
             "origins": [
+                # Dominio personalizado principal
+                "https://portal-web.lahornilla.cl",
                 # Dominios de producción Firebase
                 "https://front-portalweb.web.app",
                 "https://front-portalweb.firebaseapp.com",
                 # Dominios de desarrollo local
-                "http://localhost:*", 
+                "http://localhost:3000",
+                "http://localhost:8080",
                 "http://127.0.0.1:*", 
                 "http://192.168.1.52:*", 
                 "http://192.168.1.208:*", 
