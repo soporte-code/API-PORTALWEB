@@ -351,9 +351,8 @@ def listar_atributos_especie():
                 a.nombre as nombre_atributo,
                 e.nombre as nombre_especie
             FROM conteo_pivot_atributo_especie ae
-            LEFT JOIN conteo_dim_atributo a ON ae.id_atributo = a.id
+            LEFT JOIN conteo_dim_atributocultivo a ON ae.id_atributo = a.id
             LEFT JOIN general_dim_especie e ON ae.id_especie = e.id
-            WHERE ae.id_estado = 1
             ORDER BY ae.id_atributo, ae.id_especie
         """
         
@@ -408,9 +407,9 @@ def obtener_atributo_especie(relacion_id):
                 a.nombre as nombre_atributo,
                 e.nombre as nombre_especie
             FROM conteo_pivot_atributo_especie ae
-            LEFT JOIN conteo_dim_atributo a ON ae.id_atributo = a.id
+            LEFT JOIN conteo_dim_atributocultivo a ON ae.id_atributo = a.id
             LEFT JOIN general_dim_especie e ON ae.id_especie = e.id
-            WHERE ae.id = %s AND ae.id_estado = 1
+            WHERE ae.id = %s
         """
         
         cursor.execute(query, (relacion_id,))
@@ -463,7 +462,7 @@ def crear_atributo_especie():
         # Verificar que no existe ya esta relación
         check_query = """
             SELECT id FROM conteo_pivot_atributo_especie 
-            WHERE id_atributo = %s AND id_especie = %s AND id_estado = 1
+            WHERE id_atributo = %s AND id_especie = %s
         """
         cursor.execute(check_query, (data['id_atributo'], data['id_especie']))
         if cursor.fetchone():
@@ -477,8 +476,8 @@ def crear_atributo_especie():
         # Insertar nueva relación
         insert_query = """
             INSERT INTO conteo_pivot_atributo_especie 
-            (id_atributo, id_especie, id_estado) 
-            VALUES (%s, %s, 1)
+            (id_atributo, id_especie) 
+            VALUES (%s, %s)
         """
         
         cursor.execute(insert_query, (data['id_atributo'], data['id_especie']))
@@ -493,7 +492,7 @@ def crear_atributo_especie():
                 a.nombre as nombre_atributo,
                 e.nombre as nombre_especie
             FROM conteo_pivot_atributo_especie ae
-            LEFT JOIN conteo_dim_atributo a ON ae.id_atributo = a.id
+            LEFT JOIN conteo_dim_atributocultivo a ON ae.id_atributo = a.id
             LEFT JOIN general_dim_especie e ON ae.id_especie = e.id
             WHERE ae.id = %s
         """
@@ -532,7 +531,7 @@ def actualizar_atributo_especie(relacion_id):
         cursor = conn.cursor(dictionary=True)
         
         # Verificar que la relación existe
-        check_query = "SELECT id FROM conteo_pivot_atributo_especie WHERE id = %s AND id_estado = 1"
+        check_query = "SELECT id FROM conteo_pivot_atributo_especie WHERE id = %s"
         cursor.execute(check_query, (relacion_id,))
         if not cursor.fetchone():
             cursor.close()
@@ -578,7 +577,7 @@ def actualizar_atributo_especie(relacion_id):
                 a.nombre as nombre_atributo,
                 e.nombre as nombre_especie
             FROM conteo_pivot_atributo_especie ae
-            LEFT JOIN conteo_dim_atributo a ON ae.id_atributo = a.id
+            LEFT JOIN conteo_dim_atributocultivo a ON ae.id_atributo = a.id
             LEFT JOIN general_dim_especie e ON ae.id_especie = e.id
             WHERE ae.id = %s
         """
@@ -615,7 +614,7 @@ def eliminar_atributo_especie(relacion_id):
         cursor = conn.cursor(dictionary=True)
         
         # Verificar que la relación existe
-        check_query = "SELECT id FROM conteo_pivot_atributo_especie WHERE id = %s AND id_estado = 1"
+        check_query = "SELECT id FROM conteo_pivot_atributo_especie WHERE id = %s"
         cursor.execute(check_query, (relacion_id,))
         if not cursor.fetchone():
             cursor.close()
@@ -626,7 +625,7 @@ def eliminar_atributo_especie(relacion_id):
             }), 404
         
         # Soft delete
-        delete_query = "UPDATE conteo_pivot_atributo_especie SET id_estado = 0 WHERE id = %s"
+        delete_query = "DELETE FROM conteo_pivot_atributo_especie WHERE id = %s"
         cursor.execute(delete_query, (relacion_id,))
         
         conn.commit()
@@ -664,11 +663,8 @@ def listar_atributos():
         query = """
             SELECT 
                 id,
-                nombre,
-                descripcion,
-                id_estado
-            FROM conteo_dim_atributo
-            WHERE id_estado = 1
+                nombre
+            FROM conteo_dim_atributocultivo
             ORDER BY nombre
         """
         
@@ -718,11 +714,9 @@ def obtener_atributo(atributo_id):
         query = """
             SELECT 
                 id,
-                nombre,
-                descripcion,
-                id_estado
-            FROM conteo_dim_atributo
-            WHERE id = %s AND id_estado = 1
+                nombre
+            FROM conteo_dim_atributocultivo
+            WHERE id = %s
         """
         
         cursor.execute(query, (atributo_id,))
@@ -765,10 +759,8 @@ def listar_especies():
             SELECT 
                 id,
                 nombre,
-                caja_equivalente,
-                id_estado
+                caja_equivalente
             FROM general_dim_especie
-            WHERE id_estado = 1
             ORDER BY nombre
         """
         
@@ -809,10 +801,9 @@ def obtener_especie(especie_id):
             SELECT 
                 id,
                 nombre,
-                caja_equivalente,
-                id_estado
+                caja_equivalente
             FROM general_dim_especie
-            WHERE id = %s AND id_estado = 1
+            WHERE id = %s
         """
         
         cursor.execute(query, (especie_id,))
@@ -862,8 +853,8 @@ def obtener_atributos_optimos_por_atributo(atributo_id):
                 ao.max_ha,
                 a.nombre as nombre_atributo
             FROM conteo_dim_atributooptimo ao
-            LEFT JOIN conteo_dim_atributo a ON ao.id_atributo = a.id
-            WHERE ao.id_atributo = %s AND ao.id_estado = 1
+            LEFT JOIN conteo_dim_atributocultivo a ON ao.id_atributo = a.id
+            WHERE ao.id_atributo = %s
             ORDER BY ao.edad_min
         """
         
@@ -908,9 +899,9 @@ def obtener_atributos_por_especie(especie_id):
                 a.nombre as nombre_atributo,
                 e.nombre as nombre_especie
             FROM conteo_pivot_atributo_especie ae
-            LEFT JOIN conteo_dim_atributo a ON ae.id_atributo = a.id
+            LEFT JOIN conteo_dim_atributocultivo a ON ae.id_atributo = a.id
             LEFT JOIN general_dim_especie e ON ae.id_especie = e.id
-            WHERE ae.id_especie = %s AND ae.id_estado = 1
+            WHERE ae.id_especie = %s
             ORDER BY a.nombre
         """
         
