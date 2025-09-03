@@ -58,6 +58,7 @@ def create_app():
     from blueprints.plantas import plantas_bp
     from blueprints.mapeo import mapeo_bp
     from blueprints.variedades import variedades_bp
+    from blueprints.conteo import conteo_bp
 
     
     # Registrar blueprints
@@ -70,6 +71,7 @@ def create_app():
     app.register_blueprint(plantas_bp, url_prefix="/api/plantas")
     app.register_blueprint(mapeo_bp, url_prefix="/api/mapeo")
     app.register_blueprint(variedades_bp, url_prefix="/api/variedades")
+    app.register_blueprint(conteo_bp, url_prefix="/api/conteo")
 
     # Crear un nuevo blueprint para las rutas raíz
     root_bp = Blueprint('root_bp', __name__)
