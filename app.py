@@ -95,7 +95,7 @@ def create_app():
             cursor = conn.cursor(dictionary=True)
             
             # Primero verificar si la tabla existe
-            cursor.execute("SHOW TABLES LIKE 'conteo_dim_atributo'")
+            cursor.execute("SHOW TABLES LIKE 'conteo_dim_atributocultivo'")
             if not cursor.fetchone():
                 cursor.close()
                 conn.close()
@@ -111,11 +111,8 @@ def create_app():
             query = """
                 SELECT 
                     id,
-                    nombre,
-                    descripcion,
-                    id_estado
-                FROM conteo_dim_atributo
-                WHERE id_estado = 1
+                    nombre
+                FROM conteo_dim_atributocultivo
                 ORDER BY nombre
             """
             
@@ -158,11 +155,9 @@ def create_app():
             query = """
                 SELECT 
                     id,
-                    nombre,
-                    descripcion,
-                    id_estado
-                FROM conteo_dim_atributo
-                WHERE id = %s AND id_estado = 1
+                    nombre
+                FROM conteo_dim_atributocultivo
+                WHERE id = %s
             """
             
             cursor.execute(query, (atributo_id,))
@@ -219,10 +214,8 @@ def create_app():
                 SELECT 
                     id,
                     nombre,
-                    caja_equivalente,
-                    id_estado
+                    caja_equivalente
                 FROM general_dim_especie
-                WHERE id_estado = 1
                 ORDER BY nombre
             """
             
@@ -266,10 +259,9 @@ def create_app():
                 SELECT 
                     id,
                     nombre,
-                    caja_equivalente,
-                    id_estado
+                    caja_equivalente
                 FROM general_dim_especie
-                WHERE id = %s AND id_estado = 1
+                WHERE id = %s
             """
             
             cursor.execute(query, (especie_id,))
