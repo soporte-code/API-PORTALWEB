@@ -34,8 +34,7 @@ def listar_atributos_optimos():
                 ao.max_ha,
                 a.nombre as nombre_atributo
             FROM conteo_dim_atributooptimo ao
-            LEFT JOIN conteo_dim_atributo a ON ao.id_atributo = a.id
-            WHERE ao.id_estado = 1
+            LEFT JOIN conteo_dim_atributocultivo a ON ao.id_atributo = a.id
             ORDER BY ao.id_atributo, ao.edad_min
         """
         
@@ -93,8 +92,8 @@ def obtener_atributo_optimo(atributo_id):
                 ao.max_ha,
                 a.nombre as nombre_atributo
             FROM conteo_dim_atributooptimo ao
-            LEFT JOIN conteo_dim_atributo a ON ao.id_atributo = a.id
-            WHERE ao.id = %s AND ao.id_estado = 1
+            LEFT JOIN conteo_dim_atributocultivo a ON ao.id_atributo = a.id
+            WHERE ao.id = %s
         """
         
         cursor.execute(query, (atributo_id,))
@@ -147,8 +146,8 @@ def crear_atributo_optimo():
         # Insertar nuevo atributo óptimo
         insert_query = """
             INSERT INTO conteo_dim_atributooptimo 
-            (id_atributo, edad_min, edad_max, optimo_ha, min_ha, max_ha, id_estado) 
-            VALUES (%s, %s, %s, %s, %s, %s, 1)
+            (id_atributo, edad_min, edad_max, optimo_ha, min_ha, max_ha) 
+            VALUES (%s, %s, %s, %s, %s, %s)
         """
         
         cursor.execute(insert_query, (
@@ -175,7 +174,7 @@ def crear_atributo_optimo():
                 ao.max_ha,
                 a.nombre as nombre_atributo
             FROM conteo_dim_atributooptimo ao
-            LEFT JOIN conteo_dim_atributo a ON ao.id_atributo = a.id
+            LEFT JOIN conteo_dim_atributocultivo a ON ao.id_atributo = a.id
             WHERE ao.id = %s
         """
         
@@ -213,7 +212,7 @@ def actualizar_atributo_optimo(atributo_id):
         cursor = conn.cursor(dictionary=True)
         
         # Verificar que el atributo existe
-        check_query = "SELECT id FROM conteo_dim_atributooptimo WHERE id = %s AND id_estado = 1"
+        check_query = "SELECT id FROM conteo_dim_atributooptimo WHERE id = %s"
         cursor.execute(check_query, (atributo_id,))
         if not cursor.fetchone():
             cursor.close()
@@ -262,7 +261,7 @@ def actualizar_atributo_optimo(atributo_id):
                 ao.max_ha,
                 a.nombre as nombre_atributo
             FROM conteo_dim_atributooptimo ao
-            LEFT JOIN conteo_dim_atributo a ON ao.id_atributo = a.id
+            LEFT JOIN conteo_dim_atributocultivo a ON ao.id_atributo = a.id
             WHERE ao.id = %s
         """
         
@@ -298,7 +297,7 @@ def eliminar_atributo_optimo(atributo_id):
         cursor = conn.cursor(dictionary=True)
         
         # Verificar que el atributo existe
-        check_query = "SELECT id FROM conteo_dim_atributooptimo WHERE id = %s AND id_estado = 1"
+        check_query = "SELECT id FROM conteo_dim_atributooptimo WHERE id = %s"
         cursor.execute(check_query, (atributo_id,))
         if not cursor.fetchone():
             cursor.close()
@@ -309,7 +308,7 @@ def eliminar_atributo_optimo(atributo_id):
             }), 404
         
         # Soft delete
-        delete_query = "UPDATE conteo_dim_atributooptimo SET id_estado = 0 WHERE id = %s"
+        delete_query = "DELETE FROM conteo_dim_atributooptimo WHERE id = %s"
         cursor.execute(delete_query, (atributo_id,))
         
         conn.commit()
