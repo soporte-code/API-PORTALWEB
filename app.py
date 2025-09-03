@@ -80,6 +80,197 @@ def create_app():
     from blueprints.opciones import obtener_sucursales
     root_bp.add_url_rule('/sucursales/', 'obtener_sucursales', obtener_sucursales, methods=['GET', 'OPTIONS'])
 
+    # Endpoints de atributos y especies para CORS
+    @root_bp.route('/atributos', methods=['GET'])
+    def listar_atributos():
+        """
+        Listar todos los atributos base
+        """
+        try:
+            from utils.db import get_db_connection
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            
+            query = """
+                SELECT 
+                    id,
+                    nombre,
+                    descripcion,
+                    id_estado
+                FROM conteo_dim_atributo
+                WHERE id_estado = 1
+                ORDER BY nombre
+            """
+            
+            cursor.execute(query)
+            atributos = cursor.fetchall()
+            
+            cursor.close()
+            conn.close()
+            
+            return jsonify({
+                "success": True,
+                "message": "Atributos obtenidos exitosamente",
+                "data": {
+                    "atributos": atributos,
+                    "total": len(atributos)
+                }
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"Error obteniendo atributos: {str(e)}")
+            # Si la tabla no existe, retornar lista vacía
+            if "doesn't exist" in str(e) or "Unknown table" in str(e):
+                return jsonify({
+                    "success": True,
+                    "message": "Tabla de atributos no existe aún",
+                    "data": {
+                        "atributos": [],
+                        "total": 0
+                    }
+                }), 200
+            return jsonify({
+                "success": False,
+                "message": "Error interno del servidor",
+                "error": str(e)
+            }), 500
+
+    @root_bp.route('/atributos/<int:atributo_id>', methods=['GET'])
+    def obtener_atributo(atributo_id):
+        """
+        Obtener un atributo específico
+        """
+        try:
+            from utils.db import get_db_connection
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            
+            query = """
+                SELECT 
+                    id,
+                    nombre,
+                    descripcion,
+                    id_estado
+                FROM conteo_dim_atributo
+                WHERE id = %s AND id_estado = 1
+            """
+            
+            cursor.execute(query, (atributo_id,))
+            atributo = cursor.fetchone()
+            
+            cursor.close()
+            conn.close()
+            
+            if not atributo:
+                return jsonify({
+                    "success": False,
+                    "message": "Atributo no encontrado"
+                }), 404
+            
+            return jsonify({
+                "success": True,
+                "message": "Atributo obtenido exitosamente",
+                "data": atributo
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"Error obteniendo atributo {atributo_id}: {str(e)}")
+            return jsonify({
+                "success": False,
+                "message": "Error interno del servidor",
+                "error": str(e)
+            }), 500
+
+    @root_bp.route('/especies', methods=['GET'])
+    def listar_especies():
+        """
+        Listar todas las especies
+        """
+        try:
+            from utils.db import get_db_connection
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            
+            query = """
+                SELECT 
+                    id,
+                    nombre,
+                    caja_equivalente,
+                    id_estado
+                FROM general_dim_especie
+                WHERE id_estado = 1
+                ORDER BY nombre
+            """
+            
+            cursor.execute(query)
+            especies = cursor.fetchall()
+            
+            cursor.close()
+            conn.close()
+            
+            return jsonify({
+                "success": True,
+                "message": "Especies obtenidas exitosamente",
+                "data": {
+                    "especies": especies,
+                    "total": len(especies)
+                }
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"Error obteniendo especies: {str(e)}")
+            return jsonify({
+                "success": False,
+                "message": "Error interno del servidor",
+                "error": str(e)
+            }), 500
+
+    @root_bp.route('/especies/<int:especie_id>', methods=['GET'])
+    def obtener_especie(especie_id):
+        """
+        Obtener una especie específica
+        """
+        try:
+            from utils.db import get_db_connection
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            
+            query = """
+                SELECT 
+                    id,
+                    nombre,
+                    caja_equivalente,
+                    id_estado
+                FROM general_dim_especie
+                WHERE id = %s AND id_estado = 1
+            """
+            
+            cursor.execute(query, (especie_id,))
+            especie = cursor.fetchone()
+            
+            cursor.close()
+            conn.close()
+            
+            if not especie:
+                return jsonify({
+                    "success": False,
+                    "message": "Especie no encontrada"
+                }), 404
+            
+            return jsonify({
+                "success": True,
+                "message": "Especie obtenida exitosamente",
+                "data": especie
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"Error obteniendo especie {especie_id}: {str(e)}")
+            return jsonify({
+                "success": False,
+                "message": "Error interno del servidor",
+                "error": str(e)
+            }), 500
+
     # Endpoint de prueba para verificar conexión a BD
     @root_bp.route('/test-db', methods=['GET'])
     def test_database():
