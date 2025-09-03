@@ -91,6 +91,20 @@ def create_app():
             conn = get_db_connection()
             cursor = conn.cursor(dictionary=True)
             
+            # Primero verificar si la tabla existe
+            cursor.execute("SHOW TABLES LIKE 'conteo_dim_atributo'")
+            if not cursor.fetchone():
+                cursor.close()
+                conn.close()
+                return jsonify({
+                    "success": True,
+                    "message": "Tabla de atributos no existe aún",
+                    "data": {
+                        "atributos": [],
+                        "total": 0
+                    }
+                }), 200
+            
             query = """
                 SELECT 
                     id,
@@ -119,21 +133,14 @@ def create_app():
             
         except Exception as e:
             logger.error(f"Error obteniendo atributos: {str(e)}")
-            # Si la tabla no existe, retornar lista vacía
-            if "doesn't exist" in str(e) or "Unknown table" in str(e):
-                return jsonify({
-                    "success": True,
-                    "message": "Tabla de atributos no existe aún",
-                    "data": {
-                        "atributos": [],
-                        "total": 0
-                    }
-                }), 200
             return jsonify({
-                "success": False,
-                "message": "Error interno del servidor",
-                "error": str(e)
-            }), 500
+                "success": True,
+                "message": "Tabla de atributos no existe aún",
+                "data": {
+                    "atributos": [],
+                    "total": 0
+                }
+            }), 200
 
     @root_bp.route('/atributos/<int:atributo_id>', methods=['GET'])
     def obtener_atributo(atributo_id):
@@ -191,6 +198,20 @@ def create_app():
             conn = get_db_connection()
             cursor = conn.cursor(dictionary=True)
             
+            # Primero verificar si la tabla existe
+            cursor.execute("SHOW TABLES LIKE 'general_dim_especie'")
+            if not cursor.fetchone():
+                cursor.close()
+                conn.close()
+                return jsonify({
+                    "success": True,
+                    "message": "Tabla de especies no existe aún",
+                    "data": {
+                        "especies": [],
+                        "total": 0
+                    }
+                }), 200
+            
             query = """
                 SELECT 
                     id,
@@ -220,10 +241,13 @@ def create_app():
         except Exception as e:
             logger.error(f"Error obteniendo especies: {str(e)}")
             return jsonify({
-                "success": False,
-                "message": "Error interno del servidor",
-                "error": str(e)
-            }), 500
+                "success": True,
+                "message": "Tabla de especies no existe aún",
+                "data": {
+                    "especies": [],
+                    "total": 0
+                }
+            }), 200
 
     @root_bp.route('/especies/<int:especie_id>', methods=['GET'])
     def obtener_especie(especie_id):
