@@ -76,6 +76,9 @@ def create_app():
     # Crear un nuevo blueprint para las rutas raíz
     root_bp = Blueprint('root_bp', __name__)
     
+    # Importar jsonify para las respuestas
+    from flask import jsonify
+    
     # Importar y registrar las rutas raíz
     from blueprints.opciones import obtener_sucursales
     root_bp.add_url_rule('/sucursales/', 'obtener_sucursales', obtener_sucursales, methods=['GET', 'OPTIONS'])
