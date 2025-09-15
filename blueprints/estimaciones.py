@@ -1,0 +1,611 @@
+from flask import Blueprint, request, jsonify
+from flask_jwt_extended import jwt_required, get_jwt_identity
+from database import get_db_connection
+import logging
+
+# Configurar logging
+logger = logging.getLogger(__name__)
+
+# Crear blueprint para estimaciones
+estimaciones_bp = Blueprint('estimaciones', __name__)
+
+@estimaciones_bp.route('/api/estimaciones', methods=['GET'])
+@jwt_required()
+def listar_estimaciones():
+    """
+    Listar todas las estimaciones del usuario autenticado
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        query = """
+            SELECT 
+                e.id,
+                e.id_usuario,
+                e.id_cuartel,
+                e.id_tipoestimacion,
+                e.hora_registro,
+                e.embalaje_cajas,
+                e.embalaje_kg,
+                e.industria_kg,
+                c.nombre as nombre_cuartel,
+                t.nombre as nombre_tipo_estimacion
+            FROM estimacion_fact_registroadministradores e
+            LEFT JOIN general_dim_cuartel c ON e.id_cuartel = c.id
+            LEFT JOIN estimacion_dim_tipo t ON e.id_tipoestimacion = t.id
+            WHERE e.id_usuario = %s
+            ORDER BY e.hora_registro DESC
+        """
+        
+        cursor.execute(query, (user_id,))
+        estimaciones = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Estimaciones obtenidas exitosamente",
+            "data": {
+                "estimaciones": estimaciones,
+                "total": len(estimaciones)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo estimaciones: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@estimaciones_bp.route('/api/estimaciones/<string:estimacion_id>', methods=['GET'])
+@jwt_required()
+def obtener_estimacion(estimacion_id):
+    """
+    Obtener una estimación específica
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        query = """
+            SELECT 
+                e.id,
+                e.id_usuario,
+                e.id_cuartel,
+                e.id_tipoestimacion,
+                e.hora_registro,
+                e.embalaje_cajas,
+                e.embalaje_kg,
+                e.industria_kg,
+                c.nombre as nombre_cuartel,
+                t.nombre as nombre_tipo_estimacion
+            FROM estimacion_fact_registroadministradores e
+            LEFT JOIN general_dim_cuartel c ON e.id_cuartel = c.id
+            LEFT JOIN estimacion_dim_tipo t ON e.id_tipoestimacion = t.id
+            WHERE e.id = %s AND e.id_usuario = %s
+        """
+        
+        cursor.execute(query, (estimacion_id, user_id))
+        estimacion = cursor.fetchone()
+        
+        cursor.close()
+        conn.close()
+        
+        if not estimacion:
+            return jsonify({
+                "success": False,
+                "message": "Estimación no encontrada"
+            }), 404
+        
+        return jsonify({
+            "success": True,
+            "message": "Estimación obtenida exitosamente",
+            "data": estimacion
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo estimación {estimacion_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@estimaciones_bp.route('/api/estimaciones', methods=['POST'])
+@jwt_required()
+def crear_estimacion():
+    """
+    Crear una nueva estimación
+    """
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        # Validar campos requeridos
+        campos_requeridos = ['id_cuartel', 'id_tipoestimacion', 'embalaje_cajas', 'embalaje_kg', 'industria_kg']
+        for campo in campos_requeridos:
+            if campo not in data:
+                return jsonify({
+                    "success": False,
+                    "message": f"Campo requerido: {campo}"
+                }), 400
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Verificar que el cuartel existe y pertenece al usuario
+        cuartel_query = """
+            SELECT c.id 
+            FROM general_dim_cuartel c
+            INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
+            INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
+            INNER JOIN usuario_pivot_sucursal_usuario usu ON s.id = usu.id_sucursal
+            WHERE c.id = %s AND usu.id_usuario = %s
+        """
+        cursor.execute(cuartel_query, (data['id_cuartel'], user_id))
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Cuartel no encontrado o sin acceso"
+            }), 404
+        
+        # Verificar que el tipo de estimación existe
+        tipo_query = "SELECT id FROM estimacion_dim_tipo WHERE id = %s"
+        cursor.execute(tipo_query, (data['id_tipoestimacion'],))
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Tipo de estimación no encontrado"
+            }), 404
+        
+        # Insertar nueva estimación
+        insert_query = """
+            INSERT INTO estimacion_fact_registroadministradores 
+            (id_usuario, id_cuartel, id_tipoestimacion, embalaje_cajas, embalaje_kg, industria_kg) 
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """
+        
+        cursor.execute(insert_query, (
+            user_id,
+            data['id_cuartel'],
+            data['id_tipoestimacion'],
+            data['embalaje_cajas'],
+            data['embalaje_kg'],
+            data['industria_kg']
+        ))
+        
+        estimacion_id = cursor.lastrowid
+        
+        # Obtener la estimación creada
+        select_query = """
+            SELECT 
+                e.id,
+                e.id_usuario,
+                e.id_cuartel,
+                e.id_tipoestimacion,
+                e.hora_registro,
+                e.embalaje_cajas,
+                e.embalaje_kg,
+                e.industria_kg,
+                c.nombre as nombre_cuartel,
+                t.nombre as nombre_tipo_estimacion
+            FROM estimacion_fact_registroadministradores e
+            LEFT JOIN general_dim_cuartel c ON e.id_cuartel = c.id
+            LEFT JOIN estimacion_dim_tipo t ON e.id_tipoestimacion = t.id
+            WHERE e.id = %s
+        """
+        
+        cursor.execute(select_query, (estimacion_id,))
+        estimacion_creada = cursor.fetchone()
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Estimación creada exitosamente",
+            "data": estimacion_creada
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Error creando estimación: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@estimaciones_bp.route('/api/estimaciones/<string:estimacion_id>', methods=['PUT'])
+@jwt_required()
+def actualizar_estimacion(estimacion_id):
+    """
+    Actualizar una estimación existente
+    """
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Verificar que la estimación existe y pertenece al usuario
+        check_query = """
+            SELECT id FROM estimacion_fact_registroadministradores 
+            WHERE id = %s AND id_usuario = %s
+        """
+        cursor.execute(check_query, (estimacion_id, user_id))
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Estimación no encontrada"
+            }), 404
+        
+        # Construir query de actualización dinámicamente
+        campos_actualizables = ['id_cuartel', 'id_tipoestimacion', 'embalaje_cajas', 'embalaje_kg', 'industria_kg']
+        campos_a_actualizar = []
+        valores = []
+        
+        for campo in campos_actualizables:
+            if campo in data:
+                campos_a_actualizar.append(f"{campo} = %s")
+                valores.append(data[campo])
+        
+        if not campos_a_actualizar:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "No se proporcionaron campos para actualizar"
+            }), 400
+        
+        valores.append(estimacion_id)
+        update_query = f"""
+            UPDATE estimacion_fact_registroadministradores 
+            SET {', '.join(campos_a_actualizar)}
+            WHERE id = %s
+        """
+        
+        cursor.execute(update_query, valores)
+        
+        # Obtener la estimación actualizada
+        select_query = """
+            SELECT 
+                e.id,
+                e.id_usuario,
+                e.id_cuartel,
+                e.id_tipoestimacion,
+                e.hora_registro,
+                e.embalaje_cajas,
+                e.embalaje_kg,
+                e.industria_kg,
+                c.nombre as nombre_cuartel,
+                t.nombre as nombre_tipo_estimacion
+            FROM estimacion_fact_registroadministradores e
+            LEFT JOIN general_dim_cuartel c ON e.id_cuartel = c.id
+            LEFT JOIN estimacion_dim_tipo t ON e.id_tipoestimacion = t.id
+            WHERE e.id = %s
+        """
+        
+        cursor.execute(select_query, (estimacion_id,))
+        estimacion_actualizada = cursor.fetchone()
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Estimación actualizada exitosamente",
+            "data": estimacion_actualizada
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error actualizando estimación {estimacion_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@estimaciones_bp.route('/api/estimaciones/<string:estimacion_id>', methods=['DELETE'])
+@jwt_required()
+def eliminar_estimacion(estimacion_id):
+    """
+    Eliminar una estimación
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Verificar que la estimación existe y pertenece al usuario
+        check_query = """
+            SELECT id FROM estimacion_fact_registroadministradores 
+            WHERE id = %s AND id_usuario = %s
+        """
+        cursor.execute(check_query, (estimacion_id, user_id))
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Estimación no encontrada"
+            }), 404
+        
+        # Eliminar estimación
+        delete_query = "DELETE FROM estimacion_fact_registroadministradores WHERE id = %s"
+        cursor.execute(delete_query, (estimacion_id,))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Estimación eliminada exitosamente"
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error eliminando estimación {estimacion_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@estimaciones_bp.route('/api/estimaciones/tipos', methods=['GET'])
+@jwt_required()
+def listar_tipos_estimacion():
+    """
+    Listar todos los tipos de estimación disponibles
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        query = """
+            SELECT 
+                id,
+                nombre
+            FROM estimacion_dim_tipo
+            ORDER BY nombre
+        """
+        
+        cursor.execute(query)
+        tipos = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Tipos de estimación obtenidos exitosamente",
+            "data": {
+                "tipos": tipos,
+                "total": len(tipos)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo tipos de estimación: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@estimaciones_bp.route('/api/estimaciones/tipos/<int:tipo_id>', methods=['GET'])
+@jwt_required()
+def obtener_tipo_estimacion(tipo_id):
+    """
+    Obtener un tipo de estimación específico
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        query = """
+            SELECT 
+                id,
+                nombre
+            FROM estimacion_dim_tipo
+            WHERE id = %s
+        """
+        
+        cursor.execute(query, (tipo_id,))
+        tipo = cursor.fetchone()
+        
+        cursor.close()
+        conn.close()
+        
+        if not tipo:
+            return jsonify({
+                "success": False,
+                "message": "Tipo de estimación no encontrado"
+            }), 404
+        
+        return jsonify({
+            "success": True,
+            "message": "Tipo de estimación obtenido exitosamente",
+            "data": tipo
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo tipo de estimación {tipo_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@estimaciones_bp.route('/api/estimaciones/por-cuartel/<int:cuartel_id>', methods=['GET'])
+@jwt_required()
+def obtener_estimaciones_cuartel(cuartel_id):
+    """
+    Obtener todas las estimaciones de un cuartel específico
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Verificar acceso al cuartel
+        cuartel_query = """
+            SELECT c.id 
+            FROM general_dim_cuartel c
+            INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
+            INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
+            INNER JOIN usuario_pivot_sucursal_usuario usu ON s.id = usu.id_sucursal
+            WHERE c.id = %s AND usu.id_usuario = %s
+        """
+        cursor.execute(cuartel_query, (cuartel_id, user_id))
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Cuartel no encontrado o sin acceso"
+            }), 404
+        
+        # Obtener estimaciones del cuartel
+        query = """
+            SELECT 
+                e.id,
+                e.id_usuario,
+                e.id_cuartel,
+                e.id_tipoestimacion,
+                e.hora_registro,
+                e.embalaje_cajas,
+                e.embalaje_kg,
+                e.industria_kg,
+                c.nombre as nombre_cuartel,
+                t.nombre as nombre_tipo_estimacion
+            FROM estimacion_fact_registroadministradores e
+            LEFT JOIN general_dim_cuartel c ON e.id_cuartel = c.id
+            LEFT JOIN estimacion_dim_tipo t ON e.id_tipoestimacion = t.id
+            WHERE e.id_cuartel = %s
+            ORDER BY e.hora_registro DESC
+        """
+        
+        cursor.execute(query, (cuartel_id,))
+        estimaciones = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Estimaciones del cuartel obtenidas exitosamente",
+            "data": {
+                "estimaciones": estimaciones,
+                "total": len(estimaciones)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo estimaciones del cuartel {cuartel_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@estimaciones_bp.route('/api/estimaciones/resumen', methods=['GET'])
+@jwt_required()
+def obtener_resumen_estimaciones():
+    """
+    Obtener resumen de estimaciones del usuario
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Resumen por tipo de estimación
+        resumen_tipo_query = """
+            SELECT 
+                t.nombre as tipo_estimacion,
+                COUNT(e.id) as total_estimaciones,
+                SUM(e.embalaje_cajas) as total_cajas,
+                SUM(e.embalaje_kg) as total_kg_embalaje,
+                SUM(e.industria_kg) as total_kg_industria
+            FROM estimacion_fact_registroadministradores e
+            LEFT JOIN estimacion_dim_tipo t ON e.id_tipoestimacion = t.id
+            WHERE e.id_usuario = %s
+            GROUP BY t.id, t.nombre
+            ORDER BY total_estimaciones DESC
+        """
+        
+        cursor.execute(resumen_tipo_query, (user_id,))
+        resumen_tipo = cursor.fetchall()
+        
+        # Resumen por cuartel
+        resumen_cuartel_query = """
+            SELECT 
+                c.nombre as nombre_cuartel,
+                COUNT(e.id) as total_estimaciones,
+                SUM(e.embalaje_cajas) as total_cajas,
+                SUM(e.embalaje_kg) as total_kg_embalaje,
+                SUM(e.industria_kg) as total_kg_industria
+            FROM estimacion_fact_registroadministradores e
+            LEFT JOIN general_dim_cuartel c ON e.id_cuartel = c.id
+            WHERE e.id_usuario = %s
+            GROUP BY c.id, c.nombre
+            ORDER BY total_estimaciones DESC
+        """
+        
+        cursor.execute(resumen_cuartel_query, (user_id,))
+        resumen_cuartel = cursor.fetchall()
+        
+        # Totales generales
+        totales_query = """
+            SELECT 
+                COUNT(*) as total_estimaciones,
+                SUM(embalaje_cajas) as total_cajas,
+                SUM(embalaje_kg) as total_kg_embalaje,
+                SUM(industria_kg) as total_kg_industria
+            FROM estimacion_fact_registroadministradores
+            WHERE id_usuario = %s
+        """
+        
+        cursor.execute(totales_query, (user_id,))
+        totales = cursor.fetchone()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Resumen de estimaciones obtenido exitosamente",
+            "data": {
+                "resumen_por_tipo": resumen_tipo,
+                "resumen_por_cuartel": resumen_cuartel,
+                "totales_generales": totales
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo resumen de estimaciones: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
