@@ -677,7 +677,7 @@ def obtener_historial_cuartel(cuartel_id):
         
         # Verificar acceso al cuartel
         cuartel_query = """
-            SELECT c.id, c.nombre, c.descripcion
+            SELECT c.id, c.nombre
             FROM general_dim_cuartel c
             INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
             INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
@@ -807,7 +807,6 @@ def obtener_dashboard_estimaciones():
                     CONCAT(
                         '{"id":', c.id, 
                         ',"nombre":"', c.nombre, '",',
-                        '"descripcion":"', COALESCE(c.descripcion, ''), '",',
                         '"ceco":"', ce.nombre, '",',
                         '"sucursal":"', s.nombre, '"',
                         '}'
@@ -816,7 +815,8 @@ def obtener_dashboard_estimaciones():
                     SEPARATOR ','
                 ) as cuarteles_json
             FROM general_dim_especie e
-            INNER JOIN general_dim_cuartel c ON c.id_especie = e.id
+            INNER JOIN general_dim_variedad v ON v.id_especie = e.id
+            INNER JOIN general_dim_cuartel c ON c.id_variedad = v.id
             INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
             INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
             INNER JOIN usuario_pivot_sucursal_usuario usu ON s.id = usu.id_sucursal
@@ -856,7 +856,6 @@ def obtener_dashboard_estimaciones():
                             import re
                             id_match = re.search(r'"id":(\d+)', cuartel_str)
                             nombre_match = re.search(r'"nombre":"([^"]*)"', cuartel_str)
-                            descripcion_match = re.search(r'"descripcion":"([^"]*)"', cuartel_str)
                             ceco_match = re.search(r'"ceco":"([^"]*)"', cuartel_str)
                             sucursal_match = re.search(r'"sucursal":"([^"]*)"', cuartel_str)
                             
@@ -864,7 +863,6 @@ def obtener_dashboard_estimaciones():
                                 cuartel_data = {
                                     "id": int(id_match.group(1)),
                                     "nombre": nombre_match.group(1),
-                                    "descripcion": descripcion_match.group(1) if descripcion_match else "",
                                     "nombre_ceco": ceco_match.group(1) if ceco_match else "",
                                     "nombre_sucursal": sucursal_match.group(1) if sucursal_match else "",
                                     "total_estimaciones": 0,
@@ -998,7 +996,7 @@ def crear_estimaciones_masivo():
         
         # Verificar que el cuartel existe y pertenece al usuario
         cuartel_query = """
-            SELECT c.id, c.nombre, c.descripcion
+            SELECT c.id, c.nombre
             FROM general_dim_cuartel c
             INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
             INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
