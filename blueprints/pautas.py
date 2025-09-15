@@ -23,7 +23,50 @@ def listar_configuraciones_pauta():
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         
-        query = """
+        # Primero verificar si la tabla existe
+        cursor.execute("SHOW TABLES LIKE 'conteo_dim_configpauta'")
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": True,
+                "message": "Tabla de configuraciones de pauta no existe",
+                "data": {
+                    "configuraciones": [],
+                    "total": 0
+                }
+            }), 200
+        
+        # Consulta básica primero para ver qué datos hay
+        query_basica = """
+            SELECT 
+                cp.id,
+                cp.id_empresa,
+                cp.id_conteotipo,
+                cp.id_atributo,
+                cp.id_tipoplanta
+            FROM conteo_dim_configpauta cp
+            ORDER BY cp.id
+        """
+        
+        cursor.execute(query_basica)
+        configuraciones_basicas = cursor.fetchall()
+        
+        # Si no hay configuraciones básicas, retornar vacío
+        if not configuraciones_basicas:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": True,
+                "message": "No hay configuraciones de pauta en la base de datos",
+                "data": {
+                    "configuraciones": [],
+                    "total": 0
+                }
+            }), 200
+        
+        # Ahora hacer la consulta completa con JOINs
+        query_completa = """
             SELECT 
                 cp.id,
                 cp.id_empresa,
@@ -45,7 +88,7 @@ def listar_configuraciones_pauta():
             ORDER BY cp.id
         """
         
-        cursor.execute(query)
+        cursor.execute(query_completa)
         configuraciones = cursor.fetchall()
         
         cursor.close()
@@ -62,6 +105,72 @@ def listar_configuraciones_pauta():
         
     except Exception as e:
         logger.error(f"Error obteniendo configuraciones de pauta: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/debug-tablas', methods=['GET'])
+@jwt_required()
+def debug_tablas_pautas():
+    """
+    Endpoint de debug para verificar qué tablas existen y qué datos tienen
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        resultado = {
+            "tablas_existentes": [],
+            "datos_tablas": {},
+            "errores": []
+        }
+        
+        # Lista de tablas relacionadas con pautas
+        tablas_pautas = [
+            'conteo_dim_configpauta',
+            'conteo_dim_atributocultivo', 
+            'conteo_pivot_labor_especie',
+            'conteo_dim_laborconteo',
+            'general_dim_especie',
+            'mapeo_dim_tipoplanta',
+            'conteo_fact_pauta',
+            'conteo_fact_detallepauta'
+        ]
+        
+        # Verificar qué tablas existen
+        for tabla in tablas_pautas:
+            try:
+                cursor.execute(f"SHOW TABLES LIKE '{tabla}'")
+                if cursor.fetchone():
+                    resultado["tablas_existentes"].append(tabla)
+                    
+                    # Contar registros en cada tabla
+                    cursor.execute(f"SELECT COUNT(*) as total FROM {tabla}")
+                    count_result = cursor.fetchone()
+                    resultado["datos_tablas"][tabla] = count_result["total"]
+                    
+                    # Si hay datos, mostrar algunos ejemplos
+                    if count_result["total"] > 0:
+                        cursor.execute(f"SELECT * FROM {tabla} LIMIT 3")
+                        ejemplos = cursor.fetchall()
+                        resultado["datos_tablas"][f"{tabla}_ejemplos"] = ejemplos
+                        
+            except Exception as e:
+                resultado["errores"].append(f"Error en tabla {tabla}: {str(e)}")
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Debug de tablas completado",
+            "data": resultado
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error en debug de tablas: {str(e)}")
         return jsonify({
             "success": False,
             "message": "Error interno del servidor",
