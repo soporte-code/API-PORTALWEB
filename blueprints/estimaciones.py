@@ -609,3 +609,239 @@ def obtener_resumen_estimaciones():
             "message": "Error interno del servidor",
             "error": str(e)
         }), 500
+
+@estimaciones_bp.route('/api/estimaciones/cuarteles-disponibles', methods=['GET'])
+@jwt_required()
+def obtener_cuarteles_disponibles():
+    """
+    Obtener cuarteles disponibles para el usuario (para crear estimaciones)
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        query = """
+            SELECT DISTINCT
+                c.id,
+                c.nombre,
+                c.descripcion,
+                ce.nombre as nombre_ceco,
+                s.nombre as nombre_sucursal,
+                COUNT(e.id) as total_estimaciones
+            FROM general_dim_cuartel c
+            INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
+            INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
+            INNER JOIN usuario_pivot_sucursal_usuario usu ON s.id = usu.id_sucursal
+            LEFT JOIN estimacion_fact_registroadministradores e ON c.id = e.id_cuartel AND e.id_usuario = %s
+            WHERE usu.id_usuario = %s
+            GROUP BY c.id, c.nombre, c.descripcion, ce.nombre, s.nombre
+            ORDER BY c.nombre
+        """
+        
+        cursor.execute(query, (user_id, user_id))
+        cuarteles = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Cuarteles disponibles obtenidos exitosamente",
+            "data": {
+                "cuarteles": cuarteles,
+                "total": len(cuarteles)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo cuarteles disponibles: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@estimaciones_bp.route('/api/estimaciones/historial-cuartel/<int:cuartel_id>', methods=['GET'])
+@jwt_required()
+def obtener_historial_cuartel(cuartel_id):
+    """
+    Obtener historial completo de estimaciones de un cuartel específico
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Verificar acceso al cuartel
+        cuartel_query = """
+            SELECT c.id, c.nombre, c.descripcion
+            FROM general_dim_cuartel c
+            INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
+            INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
+            INNER JOIN usuario_pivot_sucursal_usuario usu ON s.id = usu.id_sucursal
+            WHERE c.id = %s AND usu.id_usuario = %s
+        """
+        cursor.execute(cuartel_query, (cuartel_id, user_id))
+        cuartel_info = cursor.fetchone()
+        
+        if not cuartel_info:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Cuartel no encontrado o sin acceso"
+            }), 404
+        
+        # Obtener historial de estimaciones del cuartel
+        historial_query = """
+            SELECT 
+                e.id,
+                e.id_usuario,
+                e.id_cuartel,
+                e.id_tipoestimacion,
+                e.hora_registro,
+                e.embalaje_cajas,
+                e.embalaje_kg,
+                e.industria_kg,
+                t.nombre as nombre_tipo_estimacion,
+                u.nombre as nombre_usuario,
+                u.apellido as apellido_usuario
+            FROM estimacion_fact_registroadministradores e
+            LEFT JOIN estimacion_dim_tipo t ON e.id_tipoestimacion = t.id
+            LEFT JOIN usuario_dim_usuario u ON e.id_usuario = u.id
+            WHERE e.id_cuartel = %s
+            ORDER BY e.hora_registro DESC
+        """
+        
+        cursor.execute(historial_query, (cuartel_id,))
+        historial = cursor.fetchall()
+        
+        # Estadísticas del cuartel
+        estadisticas_query = """
+            SELECT 
+                COUNT(*) as total_estimaciones,
+                SUM(embalaje_cajas) as total_cajas,
+                SUM(embalaje_kg) as total_kg_embalaje,
+                SUM(industria_kg) as total_kg_industria,
+                AVG(embalaje_cajas) as promedio_cajas,
+                AVG(embalaje_kg) as promedio_kg_embalaje,
+                AVG(industria_kg) as promedio_kg_industria,
+                MIN(hora_registro) as primera_estimacion,
+                MAX(hora_registro) as ultima_estimacion
+            FROM estimacion_fact_registroadministradores
+            WHERE id_cuartel = %s
+        """
+        
+        cursor.execute(estadisticas_query, (cuartel_id,))
+        estadisticas = cursor.fetchone()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Historial del cuartel obtenido exitosamente",
+            "data": {
+                "cuartel": cuartel_info,
+                "historial": historial,
+                "estadisticas": estadisticas,
+                "total_estimaciones": len(historial)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo historial del cuartel {cuartel_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@estimaciones_bp.route('/api/estimaciones/dashboard', methods=['GET'])
+@jwt_required()
+def obtener_dashboard_estimaciones():
+    """
+    Obtener dashboard completo con cuarteles, tipos y resumen
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Obtener cuarteles con conteo de estimaciones
+        cuarteles_query = """
+            SELECT DISTINCT
+                c.id,
+                c.nombre,
+                c.descripcion,
+                ce.nombre as nombre_ceco,
+                s.nombre as nombre_sucursal,
+                COUNT(e.id) as total_estimaciones,
+                SUM(e.embalaje_cajas) as total_cajas,
+                SUM(e.embalaje_kg) as total_kg_embalaje,
+                SUM(e.industria_kg) as total_kg_industria,
+                MAX(e.hora_registro) as ultima_estimacion
+            FROM general_dim_cuartel c
+            INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
+            INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
+            INNER JOIN usuario_pivot_sucursal_usuario usu ON s.id = usu.id_sucursal
+            LEFT JOIN estimacion_fact_registroadministradores e ON c.id = e.id_cuartel AND e.id_usuario = %s
+            WHERE usu.id_usuario = %s
+            GROUP BY c.id, c.nombre, c.descripcion, ce.nombre, s.nombre
+            ORDER BY total_estimaciones DESC, c.nombre
+        """
+        
+        cursor.execute(cuarteles_query, (user_id, user_id))
+        cuarteles = cursor.fetchall()
+        
+        # Obtener tipos de estimación
+        tipos_query = """
+            SELECT 
+                id,
+                nombre
+            FROM estimacion_dim_tipo
+            ORDER BY nombre
+        """
+        
+        cursor.execute(tipos_query)
+        tipos = cursor.fetchall()
+        
+        # Totales generales
+        totales_query = """
+            SELECT 
+                COUNT(*) as total_estimaciones,
+                SUM(embalaje_cajas) as total_cajas,
+                SUM(embalaje_kg) as total_kg_embalaje,
+                SUM(industria_kg) as total_kg_industria
+            FROM estimacion_fact_registroadministradores
+            WHERE id_usuario = %s
+        """
+        
+        cursor.execute(totales_query, (user_id,))
+        totales = cursor.fetchone()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Dashboard de estimaciones obtenido exitosamente",
+            "data": {
+                "cuarteles": cuarteles,
+                "tipos_estimacion": tipos,
+                "totales_generales": totales,
+                "total_cuarteles": len(cuarteles)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo dashboard de estimaciones: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
