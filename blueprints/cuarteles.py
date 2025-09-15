@@ -36,12 +36,13 @@ def listar_cuarteles():
                 c.deh,
                 c.id_propiedad,
                 c.id_portainjerto,
-                c.brazos_ejes,
+                c.subdivisionesplanta,
                 c.id_estado,
                 c.fecha_baja,
                 c.id_estadoproductivo,
                 c.n_hileras,
                 c.id_estadocatastro,
+                c.id_tiposubdivision,
                 s.nombre as nombre_sucursal,
                 v.nombre as nombre_variedad
             FROM general_dim_cuartel c
@@ -149,12 +150,13 @@ def obtener_cuartel(cuartel_id):
                 c.deh,
                 c.id_propiedad,
                 c.id_portainjerto,
-                c.brazos_ejes,
+                c.subdivisionesplanta,
                 c.id_estado,
                 c.fecha_baja,
                 c.id_estadoproductivo,
                 c.n_hileras,
                 c.id_estadocatastro,
+                c.id_tiposubdivision,
                 s.nombre as nombre_sucursal,
                 v.nombre as nombre_variedad
             FROM general_dim_cuartel c
@@ -243,7 +245,7 @@ def editar_cuartel(cuartel_id):
         # Preparar datos para actualización
         campos_actualizables = [
             'nombre', 'id_variedad', 'superficie', 'ano_plantacion',
-            'dsh', 'deh', 'id_propiedad', 'id_portainjerto', 'brazos_ejes',
+            'dsh', 'deh', 'id_propiedad', 'id_portainjerto', 'subdivisionesplanta',
             'id_estadoproductivo', 'n_hileras', 'id_estadocatastro'
         ]
         
@@ -287,7 +289,7 @@ def editar_cuartel(cuartel_id):
                 c.deh,
                 c.id_propiedad,
                 c.id_portainjerto,
-                c.brazos_ejes,
+                c.subdivisionesplanta,
                 c.id_estado,
                 c.fecha_baja,
                 c.id_estadoproductivo,
