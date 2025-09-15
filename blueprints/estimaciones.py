@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 # Crear blueprint para estimaciones
 estimaciones_bp = Blueprint('estimaciones', __name__)
 
-@estimaciones_bp.route('/api/estimaciones', methods=['GET'])
+@estimaciones_bp.route('/', methods=['GET'])
 @jwt_required()
 def listar_estimaciones():
     """
@@ -63,7 +63,7 @@ def listar_estimaciones():
             "error": str(e)
         }), 500
 
-@estimaciones_bp.route('/api/estimaciones/<string:estimacion_id>', methods=['GET'])
+@estimaciones_bp.route('/<string:estimacion_id>', methods=['GET'])
 @jwt_required()
 def obtener_estimacion(estimacion_id):
     """
@@ -119,7 +119,7 @@ def obtener_estimacion(estimacion_id):
             "error": str(e)
         }), 500
 
-@estimaciones_bp.route('/api/estimaciones', methods=['POST'])
+@estimaciones_bp.route('/', methods=['POST'])
 @jwt_required()
 def crear_estimacion():
     """
@@ -228,7 +228,7 @@ def crear_estimacion():
             "error": str(e)
         }), 500
 
-@estimaciones_bp.route('/api/estimaciones/<string:estimacion_id>', methods=['PUT'])
+@estimaciones_bp.route('/<string:estimacion_id>', methods=['PUT'])
 @jwt_required()
 def actualizar_estimacion(estimacion_id):
     """
@@ -322,7 +322,7 @@ def actualizar_estimacion(estimacion_id):
             "error": str(e)
         }), 500
 
-@estimaciones_bp.route('/api/estimaciones/<string:estimacion_id>', methods=['DELETE'])
+@estimaciones_bp.route('/<string:estimacion_id>', methods=['DELETE'])
 @jwt_required()
 def eliminar_estimacion(estimacion_id):
     """
@@ -369,7 +369,7 @@ def eliminar_estimacion(estimacion_id):
             "error": str(e)
         }), 500
 
-@estimaciones_bp.route('/api/estimaciones/tipos', methods=['GET'])
+@estimaciones_bp.route('/tipos', methods=['GET'])
 @jwt_required()
 def listar_tipos_estimacion():
     """
@@ -410,7 +410,7 @@ def listar_tipos_estimacion():
             "error": str(e)
         }), 500
 
-@estimaciones_bp.route('/api/estimaciones/tipos/<int:tipo_id>', methods=['GET'])
+@estimaciones_bp.route('/tipos/<int:tipo_id>', methods=['GET'])
 @jwt_required()
 def obtener_tipo_estimacion(tipo_id):
     """
@@ -454,7 +454,7 @@ def obtener_tipo_estimacion(tipo_id):
             "error": str(e)
         }), 500
 
-@estimaciones_bp.route('/api/estimaciones/por-cuartel/<int:cuartel_id>', methods=['GET'])
+@estimaciones_bp.route('/por-cuartel/<int:cuartel_id>', methods=['GET'])
 @jwt_required()
 def obtener_estimaciones_cuartel(cuartel_id):
     """
@@ -527,7 +527,7 @@ def obtener_estimaciones_cuartel(cuartel_id):
             "error": str(e)
         }), 500
 
-@estimaciones_bp.route('/api/estimaciones/resumen', methods=['GET'])
+@estimaciones_bp.route('/resumen', methods=['GET'])
 @jwt_required()
 def obtener_resumen_estimaciones():
     """
@@ -610,7 +610,7 @@ def obtener_resumen_estimaciones():
             "error": str(e)
         }), 500
 
-@estimaciones_bp.route('/api/estimaciones/cuarteles-disponibles', methods=['GET'])
+@estimaciones_bp.route('/cuarteles-disponibles', methods=['GET'])
 @jwt_required()
 def obtener_cuarteles_disponibles():
     """
@@ -663,7 +663,7 @@ def obtener_cuarteles_disponibles():
             "error": str(e)
         }), 500
 
-@estimaciones_bp.route('/api/estimaciones/historial-cuartel/<int:cuartel_id>', methods=['GET'])
+@estimaciones_bp.route('/historial-cuartel/<int:cuartel_id>', methods=['GET'])
 @jwt_required()
 def obtener_historial_cuartel(cuartel_id):
     """
@@ -760,7 +760,7 @@ def obtener_historial_cuartel(cuartel_id):
             "error": str(e)
         }), 500
 
-@estimaciones_bp.route('/api/estimaciones/dashboard', methods=['GET'])
+@estimaciones_bp.route('/dashboard', methods=['GET'])
 @jwt_required()
 def obtener_dashboard_estimaciones():
     """
@@ -970,7 +970,7 @@ def obtener_dashboard_estimaciones():
             "error": str(e)
         }), 500
 
-@estimaciones_bp.route('/api/estimaciones/crear-masivo', methods=['POST'])
+@estimaciones_bp.route('/crear-masivo', methods=['POST'])
 @jwt_required()
 def crear_estimaciones_masivo():
     """
