@@ -779,6 +779,23 @@ def obtener_dashboard_estimaciones():
         cursor.execute("SHOW TABLES LIKE 'estimacion_dim_tipo'")
         tabla_tipos_existe = cursor.fetchone()
         
+        # Verificar si las tablas básicas existen
+        cursor.execute("SHOW TABLES LIKE 'general_dim_especie'")
+        tabla_especies_existe = cursor.fetchone()
+        
+        cursor.execute("SHOW TABLES LIKE 'general_dim_cuartel'")
+        tabla_cuarteles_existe = cursor.fetchone()
+        
+        # Si las tablas básicas no existen, retornar mensaje claro
+        if not tabla_especies_existe or not tabla_cuarteles_existe:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "No hay datos disponibles. Las tablas de especies y cuarteles no existen en la base de datos.",
+                "error": "TABLAS_NO_EXISTEN"
+            }), 404
+        
         # Obtener cuarteles agrupados por especie de la sucursal activa del usuario
         cuarteles_por_especie_query = """
             SELECT DISTINCT
@@ -810,6 +827,16 @@ def obtener_dashboard_estimaciones():
         
         cursor.execute(cuarteles_por_especie_query, (user_id,))
         especies_con_cuarteles = cursor.fetchall()
+        
+        # Si no hay especies con cuarteles, retornar mensaje claro
+        if not especies_con_cuarteles:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "No hay datos disponibles. No se encontraron especies con cuarteles asignados a tu sucursal.",
+                "error": "SIN_DATOS_DISPONIBLES"
+            }), 404
         
         # Procesar los cuarteles JSON para cada especie
         especies_agrupadas = []
@@ -1082,3 +1109,4 @@ def crear_estimaciones_masivo():
             "message": "Error interno del servidor",
             "error": str(e)
         }), 500
+
