@@ -1405,6 +1405,528 @@ def obtener_pauta(pauta_id):
         }), 500
 
 # =============================================================================
+# GESTIÓN DE MUESTRAS (conteo_fact_muestra)
+# =============================================================================
+
+@pautas_bp.route('/muestras', methods=['GET'])
+@jwt_required()
+def listar_muestras():
+    """
+    Listar todas las muestras del usuario autenticado
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        query = """
+            SELECT 
+                m.id,
+                m.id_configuracion,
+                m.id_usuario,
+                m.id_temporada,
+                m.fecha,
+                m.hora_registro,
+                m.id_cuartel,
+                m.id_planta,
+                m.id_tipoplanta,
+                m.valor_atributo,
+                m.observaciones,
+                t.temporada as nombre_temporada,
+                c.nombre as nombre_cuartel,
+                p.nombre as nombre_planta,
+                tp.nombre as nombre_tipo_planta,
+                cp.id_conteotipo,
+                cp.id_atributo,
+                cp.id_tipoplanta as config_tipoplanta,
+                a.nombre as nombre_atributo,
+                le.id_labor,
+                le.id_especie,
+                l.nombre as nombre_labor,
+                e.nombre as nombre_especie
+            FROM conteo_fact_muestra m
+            LEFT JOIN general_dim_temporada t ON m.id_temporada = t.id
+            LEFT JOIN general_dim_cuartel c ON m.id_cuartel = c.id
+            LEFT JOIN general_dim_planta p ON m.id_planta = p.id
+            LEFT JOIN mapeo_dim_tipoplanta tp ON m.id_tipoplanta = tp.id
+            LEFT JOIN conteo_dim_configpauta cp ON m.id_configuracion = cp.id
+            LEFT JOIN conteo_dim_atributocultivo a ON cp.id_atributo = a.id
+            LEFT JOIN conteo_pivot_labor_especie le ON cp.id_conteotipo = le.id
+            LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
+            LEFT JOIN general_dim_especie e ON le.id_especie = e.id
+            WHERE m.id_usuario = %s
+            ORDER BY m.fecha DESC, m.hora_registro DESC
+        """
+        
+        cursor.execute(query, (user_id,))
+        muestras = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Muestras obtenidas exitosamente",
+            "data": {
+                "muestras": muestras,
+                "total": len(muestras)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo muestras: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/muestras', methods=['POST'])
+@jwt_required()
+def crear_muestra():
+    """
+    Crear una nueva muestra
+    """
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        # Validar campos requeridos
+        campos_requeridos = ['id_configuracion', 'id_temporada', 'id_cuartel', 'valor_atributo']
+        for campo in campos_requeridos:
+            if campo not in data:
+                return jsonify({
+                    "success": False,
+                    "message": f"Campo requerido: {campo}"
+                }), 400
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Insertar nueva muestra
+        insert_query = """
+            INSERT INTO conteo_fact_muestra 
+            (id_configuracion, id_usuario, id_temporada, fecha, hora_registro, 
+             id_cuartel, id_planta, id_tipoplanta, valor_atributo, observaciones) 
+            VALUES (%s, %s, %s, CURDATE(), CURTIME(), %s, %s, %s, %s, %s)
+        """
+        
+        cursor.execute(insert_query, (
+            data['id_configuracion'],
+            user_id,
+            data['id_temporada'],
+            data['id_cuartel'],
+            data.get('id_planta'),  # Opcional
+            data.get('id_tipoplanta'),  # Opcional
+            data['valor_atributo'],
+            data.get('observaciones')  # Opcional
+        ))
+        
+        muestra_id = cursor.lastrowid
+        
+        # Obtener la muestra creada
+        select_query = """
+            SELECT 
+                m.id,
+                m.id_configuracion,
+                m.id_usuario,
+                m.id_temporada,
+                m.fecha,
+                m.hora_registro,
+                m.id_cuartel,
+                m.id_planta,
+                m.id_tipoplanta,
+                m.valor_atributo,
+                m.observaciones,
+                t.temporada as nombre_temporada,
+                c.nombre as nombre_cuartel,
+                p.nombre as nombre_planta,
+                tp.nombre as nombre_tipo_planta,
+                cp.id_conteotipo,
+                cp.id_atributo,
+                cp.id_tipoplanta as config_tipoplanta,
+                a.nombre as nombre_atributo,
+                le.id_labor,
+                le.id_especie,
+                l.nombre as nombre_labor,
+                e.nombre as nombre_especie
+            FROM conteo_fact_muestra m
+            LEFT JOIN general_dim_temporada t ON m.id_temporada = t.id
+            LEFT JOIN general_dim_cuartel c ON m.id_cuartel = c.id
+            LEFT JOIN general_dim_planta p ON m.id_planta = p.id
+            LEFT JOIN mapeo_dim_tipoplanta tp ON m.id_tipoplanta = tp.id
+            LEFT JOIN conteo_dim_configpauta cp ON m.id_configuracion = cp.id
+            LEFT JOIN conteo_dim_atributocultivo a ON cp.id_atributo = a.id
+            LEFT JOIN conteo_pivot_labor_especie le ON cp.id_conteotipo = le.id
+            LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
+            LEFT JOIN general_dim_especie e ON le.id_especie = e.id
+            WHERE m.id = %s
+        """
+        
+        cursor.execute(select_query, (muestra_id,))
+        muestra_creada = cursor.fetchone()
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Muestra creada exitosamente",
+            "data": muestra_creada
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Error creando muestra: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/muestras/<string:muestra_id>', methods=['GET'])
+@jwt_required()
+def obtener_muestra(muestra_id):
+    """
+    Obtener una muestra específica
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        query = """
+            SELECT 
+                m.id,
+                m.id_configuracion,
+                m.id_usuario,
+                m.id_temporada,
+                m.fecha,
+                m.hora_registro,
+                m.id_cuartel,
+                m.id_planta,
+                m.id_tipoplanta,
+                m.valor_atributo,
+                m.observaciones,
+                t.temporada as nombre_temporada,
+                c.nombre as nombre_cuartel,
+                p.nombre as nombre_planta,
+                tp.nombre as nombre_tipo_planta,
+                cp.id_conteotipo,
+                cp.id_atributo,
+                cp.id_tipoplanta as config_tipoplanta,
+                a.nombre as nombre_atributo,
+                le.id_labor,
+                le.id_especie,
+                l.nombre as nombre_labor,
+                e.nombre as nombre_especie
+            FROM conteo_fact_muestra m
+            LEFT JOIN general_dim_temporada t ON m.id_temporada = t.id
+            LEFT JOIN general_dim_cuartel c ON m.id_cuartel = c.id
+            LEFT JOIN general_dim_planta p ON m.id_planta = p.id
+            LEFT JOIN mapeo_dim_tipoplanta tp ON m.id_tipoplanta = tp.id
+            LEFT JOIN conteo_dim_configpauta cp ON m.id_configuracion = cp.id
+            LEFT JOIN conteo_dim_atributocultivo a ON cp.id_atributo = a.id
+            LEFT JOIN conteo_pivot_labor_especie le ON cp.id_conteotipo = le.id
+            LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
+            LEFT JOIN general_dim_especie e ON le.id_especie = e.id
+            WHERE m.id = %s AND m.id_usuario = %s
+        """
+        
+        cursor.execute(query, (muestra_id, user_id))
+        muestra = cursor.fetchone()
+        
+        if not muestra:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Muestra no encontrada"
+            }), 404
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Muestra obtenida exitosamente",
+            "data": muestra
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo muestra {muestra_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/muestras/<string:muestra_id>', methods=['PUT'])
+@jwt_required()
+def actualizar_muestra(muestra_id):
+    """
+    Actualizar una muestra existente
+    """
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Construir query de actualización dinámicamente
+        campos_actualizables = ['id_configuracion', 'id_temporada', 'id_cuartel', 
+                               'id_planta', 'id_tipoplanta', 'valor_atributo', 'observaciones']
+        campos_a_actualizar = []
+        valores = []
+        
+        for campo in campos_actualizables:
+            if campo in data:
+                campos_a_actualizar.append(f"{campo} = %s")
+                valores.append(data[campo])
+        
+        if not campos_a_actualizar:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "No se proporcionaron campos para actualizar"
+            }), 400
+        
+        valores.append(muestra_id)
+        valores.append(user_id)
+        update_query = f"""
+            UPDATE conteo_fact_muestra 
+            SET {', '.join(campos_a_actualizar)}
+            WHERE id = %s AND id_usuario = %s
+        """
+        
+        cursor.execute(update_query, valores)
+        
+        # Obtener la muestra actualizada
+        select_query = """
+            SELECT 
+                m.id,
+                m.id_configuracion,
+                m.id_usuario,
+                m.id_temporada,
+                m.fecha,
+                m.hora_registro,
+                m.id_cuartel,
+                m.id_planta,
+                m.id_tipoplanta,
+                m.valor_atributo,
+                m.observaciones,
+                t.temporada as nombre_temporada,
+                c.nombre as nombre_cuartel,
+                p.nombre as nombre_planta,
+                tp.nombre as nombre_tipo_planta,
+                cp.id_conteotipo,
+                cp.id_atributo,
+                cp.id_tipoplanta as config_tipoplanta,
+                a.nombre as nombre_atributo,
+                le.id_labor,
+                le.id_especie,
+                l.nombre as nombre_labor,
+                e.nombre as nombre_especie
+            FROM conteo_fact_muestra m
+            LEFT JOIN general_dim_temporada t ON m.id_temporada = t.id
+            LEFT JOIN general_dim_cuartel c ON m.id_cuartel = c.id
+            LEFT JOIN general_dim_planta p ON m.id_planta = p.id
+            LEFT JOIN mapeo_dim_tipoplanta tp ON m.id_tipoplanta = tp.id
+            LEFT JOIN conteo_dim_configpauta cp ON m.id_configuracion = cp.id
+            LEFT JOIN conteo_dim_atributocultivo a ON cp.id_atributo = a.id
+            LEFT JOIN conteo_pivot_labor_especie le ON cp.id_conteotipo = le.id
+            LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
+            LEFT JOIN general_dim_especie e ON le.id_especie = e.id
+            WHERE m.id = %s
+        """
+        
+        cursor.execute(select_query, (muestra_id,))
+        muestra_actualizada = cursor.fetchone()
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Muestra actualizada exitosamente",
+            "data": muestra_actualizada
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error actualizando muestra {muestra_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/muestras/<string:muestra_id>', methods=['DELETE'])
+@jwt_required()
+def eliminar_muestra(muestra_id):
+    """
+    Eliminar una muestra
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Eliminar muestra
+        delete_query = "DELETE FROM conteo_fact_muestra WHERE id = %s AND id_usuario = %s"
+        cursor.execute(delete_query, (muestra_id, user_id))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Muestra eliminada exitosamente"
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error eliminando muestra {muestra_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/muestras-masivo', methods=['POST'])
+@jwt_required()
+def crear_muestras_masivo():
+    """
+    Crear múltiples muestras de una vez
+    """
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        # Validar campos requeridos
+        if 'muestras' not in data or not isinstance(data['muestras'], list):
+            return jsonify({
+                "success": False,
+                "message": "Campo requerido: muestras (array)"
+            }), 400
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Validar cada muestra
+        muestras_validas = []
+        for i, muestra in enumerate(data['muestras']):
+            campos_requeridos = ['id_configuracion', 'id_temporada', 'id_cuartel', 'valor_atributo']
+            for campo in campos_requeridos:
+                if campo not in muestra:
+                    return jsonify({
+                        "success": False,
+                        "message": f"Muestra {i+1}: Campo requerido: {campo}"
+                    }), 400
+            
+            muestras_validas.append({
+                'id_configuracion': muestra['id_configuracion'],
+                'id_temporada': muestra['id_temporada'],
+                'id_cuartel': muestra['id_cuartel'],
+                'id_planta': muestra.get('id_planta'),
+                'id_tipoplanta': muestra.get('id_tipoplanta'),
+                'valor_atributo': muestra['valor_atributo'],
+                'observaciones': muestra.get('observaciones')
+            })
+        
+        # Insertar todas las muestras
+        muestras_creadas = []
+        for muestra in muestras_validas:
+            insert_query = """
+                INSERT INTO conteo_fact_muestra 
+                (id_configuracion, id_usuario, id_temporada, fecha, hora_registro, 
+                 id_cuartel, id_planta, id_tipoplanta, valor_atributo, observaciones) 
+                VALUES (%s, %s, %s, CURDATE(), CURTIME(), %s, %s, %s, %s, %s)
+            """
+            
+            cursor.execute(insert_query, (
+                muestra['id_configuracion'],
+                user_id,
+                muestra['id_temporada'],
+                muestra['id_cuartel'],
+                muestra['id_planta'],
+                muestra['id_tipoplanta'],
+                muestra['valor_atributo'],
+                muestra['observaciones']
+            ))
+            
+            muestra_id = cursor.lastrowid
+            
+            # Obtener la muestra creada
+            select_query = """
+                SELECT 
+                    m.id,
+                    m.id_configuracion,
+                    m.id_usuario,
+                    m.id_temporada,
+                    m.fecha,
+                    m.hora_registro,
+                    m.id_cuartel,
+                    m.id_planta,
+                    m.id_tipoplanta,
+                    m.valor_atributo,
+                    m.observaciones,
+                    t.temporada as nombre_temporada,
+                    c.nombre as nombre_cuartel,
+                    p.nombre as nombre_planta,
+                    tp.nombre as nombre_tipo_planta,
+                    cp.id_conteotipo,
+                    cp.id_atributo,
+                    cp.id_tipoplanta as config_tipoplanta,
+                    a.nombre as nombre_atributo,
+                    le.id_labor,
+                    le.id_especie,
+                    l.nombre as nombre_labor,
+                    e.nombre as nombre_especie
+                FROM conteo_fact_muestra m
+                LEFT JOIN general_dim_temporada t ON m.id_temporada = t.id
+                LEFT JOIN general_dim_cuartel c ON m.id_cuartel = c.id
+                LEFT JOIN general_dim_planta p ON m.id_planta = p.id
+                LEFT JOIN mapeo_dim_tipoplanta tp ON m.id_tipoplanta = tp.id
+                LEFT JOIN conteo_dim_configpauta cp ON m.id_configuracion = cp.id
+                LEFT JOIN conteo_dim_atributocultivo a ON cp.id_atributo = a.id
+                LEFT JOIN conteo_pivot_labor_especie le ON cp.id_conteotipo = le.id
+                LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
+                LEFT JOIN general_dim_especie e ON le.id_especie = e.id
+                WHERE m.id = %s
+            """
+            
+            cursor.execute(select_query, (muestra_id,))
+            muestra_creada = cursor.fetchone()
+            muestras_creadas.append(muestra_creada)
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": f"{len(muestras_creadas)} muestras creadas exitosamente",
+            "data": {
+                "muestras_creadas": muestras_creadas,
+                "total_creadas": len(muestras_creadas)
+            }
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Error creando muestras masivo: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+# =============================================================================
 # DETALLE DE PAUTAS (conteo_fact_detallepauta)
 # =============================================================================
 
