@@ -470,7 +470,15 @@ def create_app():
 app = create_app()
 
 if __name__ == '__main__':
-    # Obtener el puerto de la variable de entorno PORT (requerido por Cloud Run)
-    port = int(os.environ.get('PORT', 8080))
-    app.run(debug=False, host='0.0.0.0', port=port)
+    try:
+        # Obtener el puerto de la variable de entorno PORT (requerido por Cloud Run)
+        port = int(os.environ.get('PORT', 8080))
+        print(f"🚀 Iniciando servidor Flask en puerto {port}")
+        app.run(debug=False, host='0.0.0.0', port=port, threaded=True)
+    except KeyboardInterrupt:
+        print("🛑 Servidor detenido por el usuario")
+    except Exception as e:
+        print(f"❌ Error iniciando servidor: {str(e)}")
+    finally:
+        print("✅ Servidor cerrado correctamente")
 
