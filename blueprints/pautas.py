@@ -84,7 +84,7 @@ def listar_configuraciones_pauta():
             LEFT JOIN conteo_pivot_labor_especie le ON cp.id_conteotipo = le.id
             LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
             LEFT JOIN general_dim_especie e ON le.id_especie = e.id
-            LEFT JOIN mapeo_dim_tipoplanta tp ON cp.id_tipoplanta = tp.id
+            LEFT JOIN mapeo_dim_tipoplanta tp ON LPAD(cp.id_tipoplanta, 2, '0') = tp.id
             ORDER BY cp.id
         """
         
@@ -225,7 +225,7 @@ def listar_configuraciones_agrupadas():
             LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
             LEFT JOIN general_dim_especie e ON le.id_especie = e.id
             LEFT JOIN conteo_dim_atributocultivo a ON cp.id_atributo = a.id
-            LEFT JOIN mapeo_dim_tipoplanta tp ON cp.id_tipoplanta = tp.id
+            LEFT JOIN mapeo_dim_tipoplanta tp ON LPAD(cp.id_tipoplanta, 2, '0') = tp.id
             GROUP BY cp.id_conteotipo, l.nombre, e.nombre
             ORDER BY l.nombre, e.nombre
         """
@@ -345,7 +345,7 @@ def crear_configuracion_pauta():
             LEFT JOIN conteo_pivot_labor_especie le ON cp.id_conteotipo = le.id
             LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
             LEFT JOIN general_dim_especie e ON le.id_especie = e.id
-            LEFT JOIN mapeo_dim_tipoplanta tp ON cp.id_tipoplanta = tp.id
+            LEFT JOIN mapeo_dim_tipoplanta tp ON LPAD(cp.id_tipoplanta, 2, '0') = tp.id
             WHERE cp.id = %s
         """
         
@@ -428,7 +428,7 @@ def actualizar_configuracion_pauta(config_id):
             LEFT JOIN conteo_pivot_labor_especie le ON cp.id_conteotipo = le.id
             LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
             LEFT JOIN general_dim_especie e ON le.id_especie = e.id
-            LEFT JOIN mapeo_dim_tipoplanta tp ON cp.id_tipoplanta = tp.id
+            LEFT JOIN mapeo_dim_tipoplanta tp ON LPAD(cp.id_tipoplanta, 2, '0') = tp.id
             WHERE cp.id = %s
         """
         
@@ -724,7 +724,7 @@ def generar_formulario_dinamico(labor_id, especie_id):
                 tp.nombre as nombre_tipo_planta
             FROM conteo_dim_configpauta cp
             LEFT JOIN conteo_dim_atributocultivo a ON cp.id_atributo = a.id
-            LEFT JOIN mapeo_dim_tipoplanta tp ON cp.id_tipoplanta = tp.id
+            LEFT JOIN mapeo_dim_tipoplanta tp ON LPAD(cp.id_tipoplanta, 2, '0') = tp.id
             WHERE cp.id_conteotipo = %s
             ORDER BY a.nombre
         """
