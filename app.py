@@ -294,6 +294,132 @@ def create_app():
                 "error": str(e)
             }), 500
 
+    @root_bp.route('/temporadas', methods=['GET'])
+    def listar_temporadas():
+        """
+        Listar todas las temporadas disponibles
+        """
+        try:
+            from utils.db import get_db_connection
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            
+            # Verificar si la tabla existe
+            cursor.execute("SHOW TABLES LIKE 'general_dim_temporada'")
+            if not cursor.fetchone():
+                cursor.close()
+                conn.close()
+                return jsonify({
+                    "success": True,
+                    "message": "Tabla de temporadas no existe",
+                    "data": {
+                        "temporadas": [],
+                        "total": 0
+                    }
+                }), 200
+            
+            query = """
+                SELECT 
+                    id,
+                    temporada as nombre,
+                    id_empresa,
+                    fechainicio_produccion as fecha_inicio,
+                    fechatermino_produccion as fecha_fin,
+                    fechainicio_riego,
+                    fechatermino_riego,
+                    fechainicio_fito,
+                    fechatermino_fito
+                FROM general_dim_temporada
+                ORDER BY fechainicio_produccion DESC
+            """
+            
+            cursor.execute(query)
+            temporadas = cursor.fetchall()
+            
+            cursor.close()
+            conn.close()
+            
+            return jsonify({
+                "success": True,
+                "message": "Temporadas obtenidas exitosamente",
+                "data": {
+                    "temporadas": temporadas,
+                    "total": len(temporadas)
+                }
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"Error obteniendo temporadas: {str(e)}")
+            return jsonify({
+                "success": False,
+                "message": "Error interno del servidor",
+                "error": str(e)
+            }), 500
+
+    @root_bp.route('/temporadas/<int:temporada_id>', methods=['GET'])
+    def obtener_temporada(temporada_id):
+        """
+        Obtener una temporada específica
+        """
+        try:
+            from utils.db import get_db_connection
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            
+            # Verificar si la tabla existe
+            cursor.execute("SHOW TABLES LIKE 'general_dim_temporada'")
+            if not cursor.fetchone():
+                cursor.close()
+                conn.close()
+                return jsonify({
+                    "success": True,
+                    "message": "Tabla de temporadas no existe",
+                    "data": {
+                        "temporada": None
+                    }
+                }), 200
+            
+            query = """
+                SELECT 
+                    id,
+                    temporada as nombre,
+                    id_empresa,
+                    fechainicio_produccion as fecha_inicio,
+                    fechatermino_produccion as fecha_fin,
+                    fechainicio_riego,
+                    fechatermino_riego,
+                    fechainicio_fito,
+                    fechatermino_fito
+                FROM general_dim_temporada
+                WHERE id = %s
+            """
+            
+            cursor.execute(query, (temporada_id,))
+            temporada = cursor.fetchone()
+            
+            cursor.close()
+            conn.close()
+            
+            if temporada:
+                return jsonify({
+                    "success": True,
+                    "message": "Temporada obtenida exitosamente",
+                    "data": temporada
+                }), 200
+            else:
+                return jsonify({
+                    "success": False,
+                    "message": "Temporada no encontrada"
+                }), 404
+                
+        except Exception as e:
+            logger.error(f"Error obteniendo temporada {temporada_id}: {str(e)}")
+            return jsonify({
+                "success": False,
+                "message": "Error interno del servidor",
+                "error": str(e)
+            }), 500
+
     # Endpoint de prueba para verificar conexión a BD
     @root_bp.route('/test-db', methods=['GET'])
     def test_database():
