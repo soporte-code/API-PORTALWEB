@@ -177,6 +177,118 @@ def debug_tablas_pautas():
             "error": str(e)
         }), 500
 
+@pautas_bp.route('/configuraciones-agrupadas', methods=['GET'])
+@jwt_required()
+def listar_configuraciones_agrupadas():
+    """
+    Listar configuraciones de pauta agrupadas por tipo de conteo (labor-especie)
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Primero verificar si la tabla existe
+        cursor.execute("SHOW TABLES LIKE 'conteo_dim_configpauta'")
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": True,
+                "message": "Tabla de configuraciones de pauta no existe",
+                "data": {
+                    "tipos_conteo": [],
+                    "total_tipos_conteo": 0,
+                    "total_configuraciones": 0
+                }
+            }), 200
+        
+        # Consulta para obtener configuraciones agrupadas por tipo de conteo
+        query = """
+            SELECT 
+                cp.id_conteotipo,
+                l.nombre as nombre_labor,
+                e.nombre as nombre_especie,
+                COUNT(cp.id) as total_configuraciones,
+                GROUP_CONCAT(
+                    CONCAT(
+                        cp.id, '|',
+                        cp.id_empresa, '|',
+                        cp.id_conteotipo, '|',
+                        cp.id_atributo, '|',
+                        cp.id_tipoplanta, '|',
+                        a.nombre, '|',
+                        COALESCE(tp.nombre, 'Sin tipo')
+                    ) SEPARATOR '||'
+                ) as configuraciones_raw
+            FROM conteo_dim_configpauta cp
+            LEFT JOIN conteo_pivot_labor_especie le ON cp.id_conteotipo = le.id
+            LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
+            LEFT JOIN general_dim_especie e ON le.id_especie = e.id
+            LEFT JOIN conteo_dim_atributocultivo a ON cp.id_atributo = a.id
+            LEFT JOIN mapeo_dim_tipoplanta tp ON cp.id_tipoplanta = tp.id
+            GROUP BY cp.id_conteotipo, l.nombre, e.nombre
+            ORDER BY l.nombre, e.nombre
+        """
+        
+        cursor.execute(query)
+        grupos = cursor.fetchall()
+        
+        # Procesar los resultados
+        tipos_conteo = []
+        total_configuraciones = 0
+        
+        for grupo in grupos:
+            configuraciones = []
+            
+            if grupo['configuraciones_raw']:
+                # Parsear las configuraciones del GROUP_CONCAT
+                configuraciones_raw = grupo['configuraciones_raw'].split('||')
+                
+                for config_raw in configuraciones_raw:
+                    if config_raw:
+                        partes = config_raw.split('|')
+                        if len(partes) >= 7:
+                            configuraciones.append({
+                                'id': int(partes[0]),
+                                'id_empresa': int(partes[1]),
+                                'id_conteotipo': int(partes[2]),
+                                'id_atributo': int(partes[3]),
+                                'id_tipoplanta': partes[4] if partes[4] else None,
+                                'nombre_atributo': partes[5],
+                                'nombre_tipo_planta': partes[6]
+                            })
+            
+            tipos_conteo.append({
+                'id_conteotipo': grupo['id_conteotipo'],
+                'nombre_labor': grupo['nombre_labor'],
+                'nombre_especie': grupo['nombre_especie'],
+                'total_configuraciones': grupo['total_configuraciones'],
+                'configuraciones': configuraciones
+            })
+            
+            total_configuraciones += grupo['total_configuraciones']
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Configuraciones agrupadas obtenidas exitosamente",
+            "data": {
+                "tipos_conteo": tipos_conteo,
+                "total_tipos_conteo": len(tipos_conteo),
+                "total_configuraciones": total_configuraciones
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo configuraciones agrupadas: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
 @pautas_bp.route('/configuraciones', methods=['POST'])
 @jwt_required()
 def crear_configuracion_pauta():
