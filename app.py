@@ -60,6 +60,7 @@ def create_app():
     from blueprints.variedades import variedades_bp
     from blueprints.conteo import conteo_bp
     from blueprints.estimaciones import estimaciones_bp
+    from blueprints.pautas import pautas_bp
 
     
     # Registrar blueprints
@@ -74,6 +75,7 @@ def create_app():
     app.register_blueprint(variedades_bp, url_prefix="/api/variedades")
     app.register_blueprint(conteo_bp, url_prefix="/api/conteo")
     app.register_blueprint(estimaciones_bp, url_prefix="/api/estimaciones")
+    app.register_blueprint(pautas_bp, url_prefix="/api/pautas")
 
     # Crear un nuevo blueprint para las rutas raíz
     root_bp = Blueprint('root_bp', __name__)
