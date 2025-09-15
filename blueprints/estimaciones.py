@@ -764,7 +764,7 @@ def obtener_historial_cuartel(cuartel_id):
 @jwt_required()
 def obtener_dashboard_estimaciones():
     """
-    Obtener dashboard completo con cuarteles, tipos y resumen
+    Obtener dashboard completo con cuarteles agrupados por especie
     """
     try:
         user_id = get_jwt_identity()
@@ -772,57 +772,153 @@ def obtener_dashboard_estimaciones():
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         
-        # Obtener cuarteles con conteo de estimaciones
-        cuarteles_query = """
+        # Verificar si las tablas de estimaciones existen
+        cursor.execute("SHOW TABLES LIKE 'estimacion_fact_registroadministradores'")
+        tabla_estimaciones_existe = cursor.fetchone()
+        
+        cursor.execute("SHOW TABLES LIKE 'estimacion_dim_tipo'")
+        tabla_tipos_existe = cursor.fetchone()
+        
+        # Obtener cuarteles agrupados por especie de la sucursal activa del usuario
+        cuarteles_por_especie_query = """
             SELECT DISTINCT
-                c.id,
-                c.nombre,
-                c.descripcion,
-                ce.nombre as nombre_ceco,
-                s.nombre as nombre_sucursal,
-                COUNT(e.id) as total_estimaciones,
-                SUM(e.embalaje_cajas) as total_cajas,
-                SUM(e.embalaje_kg) as total_kg_embalaje,
-                SUM(e.industria_kg) as total_kg_industria,
-                MAX(e.hora_registro) as ultima_estimacion
-            FROM general_dim_cuartel c
+                e.id as especie_id,
+                e.nombre as especie_nombre,
+                e.caja_equivalente,
+                COUNT(DISTINCT c.id) as total_cuarteles,
+                GROUP_CONCAT(
+                    CONCAT(
+                        '{"id":', c.id, 
+                        ',"nombre":"', c.nombre, '",',
+                        '"descripcion":"', COALESCE(c.descripcion, ''), '",',
+                        '"ceco":"', ce.nombre, '",',
+                        '"sucursal":"', s.nombre, '"',
+                        '}'
+                    ) 
+                    ORDER BY c.nombre 
+                    SEPARATOR ','
+                ) as cuarteles_json
+            FROM general_dim_especie e
+            INNER JOIN general_dim_cuartel c ON c.id_especie = e.id
             INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
             INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
             INNER JOIN usuario_pivot_sucursal_usuario usu ON s.id = usu.id_sucursal
-            LEFT JOIN estimacion_fact_registroadministradores e ON c.id = e.id_cuartel AND e.id_usuario = %s
             WHERE usu.id_usuario = %s
-            GROUP BY c.id, c.nombre, c.descripcion, ce.nombre, s.nombre
-            ORDER BY total_estimaciones DESC, c.nombre
+            GROUP BY e.id, e.nombre, e.caja_equivalente
+            ORDER BY e.nombre
         """
         
-        cursor.execute(cuarteles_query, (user_id, user_id))
-        cuarteles = cursor.fetchall()
+        cursor.execute(cuarteles_por_especie_query, (user_id,))
+        especies_con_cuarteles = cursor.fetchall()
         
-        # Obtener tipos de estimación
-        tipos_query = """
-            SELECT 
-                id,
-                nombre
-            FROM estimacion_dim_tipo
-            ORDER BY nombre
-        """
+        # Procesar los cuarteles JSON para cada especie
+        especies_agrupadas = []
+        for especie in especies_con_cuarteles:
+            cuarteles_data = []
+            if especie['cuarteles_json']:
+                # Parsear el JSON de cuarteles
+                cuarteles_str = especie['cuarteles_json']
+                cuarteles_list = cuarteles_str.split(',')
+                
+                for cuartel_str in cuarteles_list:
+                    try:
+                        # Limpiar y parsear cada cuartel
+                        cuartel_str = cuartel_str.strip()
+                        if cuartel_str.startswith('{"id":'):
+                            # Extraer datos del cuartel
+                            import re
+                            id_match = re.search(r'"id":(\d+)', cuartel_str)
+                            nombre_match = re.search(r'"nombre":"([^"]*)"', cuartel_str)
+                            descripcion_match = re.search(r'"descripcion":"([^"]*)"', cuartel_str)
+                            ceco_match = re.search(r'"ceco":"([^"]*)"', cuartel_str)
+                            sucursal_match = re.search(r'"sucursal":"([^"]*)"', cuartel_str)
+                            
+                            if id_match and nombre_match:
+                                cuartel_data = {
+                                    "id": int(id_match.group(1)),
+                                    "nombre": nombre_match.group(1),
+                                    "descripcion": descripcion_match.group(1) if descripcion_match else "",
+                                    "nombre_ceco": ceco_match.group(1) if ceco_match else "",
+                                    "nombre_sucursal": sucursal_match.group(1) if sucursal_match else "",
+                                    "total_estimaciones": 0,
+                                    "total_cajas": 0,
+                                    "total_kg_embalaje": 0,
+                                    "total_kg_industria": 0,
+                                    "ultima_estimacion": None
+                                }
+                                cuarteles_data.append(cuartel_data)
+                    except Exception as parse_error:
+                        logger.warning(f"Error parseando cuartel: {parse_error}")
+                        continue
+            
+            especies_agrupadas.append({
+                "especie_id": especie['especie_id'],
+                "especie_nombre": especie['especie_nombre'],
+                "caja_equivalente": especie['caja_equivalente'],
+                "total_cuarteles": especie['total_cuarteles'],
+                "cuarteles": cuarteles_data
+            })
         
-        cursor.execute(tipos_query)
-        tipos = cursor.fetchall()
-        
-        # Totales generales
-        totales_query = """
-            SELECT 
-                COUNT(*) as total_estimaciones,
-                SUM(embalaje_cajas) as total_cajas,
-                SUM(embalaje_kg) as total_kg_embalaje,
-                SUM(industria_kg) as total_kg_industria
-            FROM estimacion_fact_registroadministradores
-            WHERE id_usuario = %s
-        """
-        
-        cursor.execute(totales_query, (user_id,))
-        totales = cursor.fetchone()
+        # Si las tablas de estimaciones existen, agregar estadísticas
+        if tabla_estimaciones_existe and tabla_tipos_existe:
+            # Agregar estadísticas de estimaciones a cada cuartel
+            for especie in especies_agrupadas:
+                for cuartel in especie['cuarteles']:
+                    estadisticas_query = """
+                        SELECT 
+                            COUNT(*) as total_estimaciones,
+                            COALESCE(SUM(embalaje_cajas), 0) as total_cajas,
+                            COALESCE(SUM(embalaje_kg), 0) as total_kg_embalaje,
+                            COALESCE(SUM(industria_kg), 0) as total_kg_industria,
+                            MAX(hora_registro) as ultima_estimacion
+                        FROM estimacion_fact_registroadministradores
+                        WHERE id_cuartel = %s AND id_usuario = %s
+                    """
+                    
+                    cursor.execute(estadisticas_query, (cuartel['id'], user_id))
+                    stats = cursor.fetchone()
+                    
+                    if stats:
+                        cuartel['total_estimaciones'] = stats['total_estimaciones']
+                        cuartel['total_cajas'] = stats['total_cajas']
+                        cuartel['total_kg_embalaje'] = stats['total_kg_embalaje']
+                        cuartel['total_kg_industria'] = stats['total_kg_industria']
+                        cuartel['ultima_estimacion'] = stats['ultima_estimacion']
+            
+            # Obtener tipos de estimación
+            tipos_query = """
+                SELECT 
+                    id,
+                    nombre
+                FROM estimacion_dim_tipo
+                ORDER BY nombre
+            """
+            
+            cursor.execute(tipos_query)
+            tipos = cursor.fetchall()
+            
+            # Totales generales
+            totales_query = """
+                SELECT 
+                    COUNT(*) as total_estimaciones,
+                    COALESCE(SUM(embalaje_cajas), 0) as total_cajas,
+                    COALESCE(SUM(embalaje_kg), 0) as total_kg_embalaje,
+                    COALESCE(SUM(industria_kg), 0) as total_kg_industria
+                FROM estimacion_fact_registroadministradores
+                WHERE id_usuario = %s
+            """
+            
+            cursor.execute(totales_query, (user_id,))
+            totales = cursor.fetchone()
+        else:
+            # Si las tablas no existen, usar datos básicos
+            tipos = []
+            totales = {
+                "total_estimaciones": 0,
+                "total_cajas": 0,
+                "total_kg_embalaje": 0,
+                "total_kg_industria": 0
+            }
         
         cursor.close()
         conn.close()
@@ -831,15 +927,156 @@ def obtener_dashboard_estimaciones():
             "success": True,
             "message": "Dashboard de estimaciones obtenido exitosamente",
             "data": {
-                "cuarteles": cuarteles,
+                "especies_agrupadas": especies_agrupadas,
                 "tipos_estimacion": tipos,
                 "totales_generales": totales,
-                "total_cuarteles": len(cuarteles)
+                "total_especies": len(especies_agrupadas),
+                "tablas_existen": tabla_estimaciones_existe is not None and tabla_tipos_existe is not None
             }
         }), 200
         
     except Exception as e:
         logger.error(f"Error obteniendo dashboard de estimaciones: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@estimaciones_bp.route('/api/estimaciones/crear-masivo', methods=['POST'])
+@jwt_required()
+def crear_estimaciones_masivo():
+    """
+    Crear múltiples estimaciones para un cuartel específico (modo tabla)
+    """
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        # Validar campos requeridos
+        if 'id_cuartel' not in data:
+            return jsonify({
+                "success": False,
+                "message": "Campo requerido: id_cuartel"
+            }), 400
+        
+        if 'estimaciones' not in data or not isinstance(data['estimaciones'], list):
+            return jsonify({
+                "success": False,
+                "message": "Campo requerido: estimaciones (array)"
+            }), 400
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Verificar que el cuartel existe y pertenece al usuario
+        cuartel_query = """
+            SELECT c.id, c.nombre, c.descripcion
+            FROM general_dim_cuartel c
+            INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
+            INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
+            INNER JOIN usuario_pivot_sucursal_usuario usu ON s.id = usu.id_sucursal
+            WHERE c.id = %s AND usu.id_usuario = %s
+        """
+        cursor.execute(cuartel_query, (data['id_cuartel'], user_id))
+        cuartel_info = cursor.fetchone()
+        
+        if not cuartel_info:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Cuartel no encontrado o sin acceso"
+            }), 404
+        
+        # Validar cada estimación
+        estimaciones_validas = []
+        for i, estimacion in enumerate(data['estimaciones']):
+            campos_requeridos = ['id_tipoestimacion', 'embalaje_cajas', 'embalaje_kg', 'industria_kg']
+            for campo in campos_requeridos:
+                if campo not in estimacion:
+                    return jsonify({
+                        "success": False,
+                        "message": f"Estimación {i+1}: Campo requerido: {campo}"
+                    }), 400
+            
+            # Verificar que el tipo de estimación existe
+            tipo_query = "SELECT id FROM estimacion_dim_tipo WHERE id = %s"
+            cursor.execute(tipo_query, (estimacion['id_tipoestimacion'],))
+            if not cursor.fetchone():
+                cursor.close()
+                conn.close()
+                return jsonify({
+                    "success": False,
+                    "message": f"Estimación {i+1}: Tipo de estimación no encontrado"
+                }), 404
+            
+            estimaciones_validas.append({
+                'id_tipoestimacion': estimacion['id_tipoestimacion'],
+                'embalaje_cajas': estimacion['embalaje_cajas'],
+                'embalaje_kg': estimacion['embalaje_kg'],
+                'industria_kg': estimacion['industria_kg']
+            })
+        
+        # Insertar todas las estimaciones
+        estimaciones_creadas = []
+        for estimacion in estimaciones_validas:
+            insert_query = """
+                INSERT INTO estimacion_fact_registroadministradores 
+                (id_usuario, id_cuartel, id_tipoestimacion, embalaje_cajas, embalaje_kg, industria_kg) 
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """
+            
+            cursor.execute(insert_query, (
+                user_id,
+                data['id_cuartel'],
+                estimacion['id_tipoestimacion'],
+                estimacion['embalaje_cajas'],
+                estimacion['embalaje_kg'],
+                estimacion['industria_kg']
+            ))
+            
+            estimacion_id = cursor.lastrowid
+            
+            # Obtener la estimación creada
+            select_query = """
+                SELECT 
+                    e.id,
+                    e.id_usuario,
+                    e.id_cuartel,
+                    e.id_tipoestimacion,
+                    e.hora_registro,
+                    e.embalaje_cajas,
+                    e.embalaje_kg,
+                    e.industria_kg,
+                    c.nombre as nombre_cuartel,
+                    t.nombre as nombre_tipo_estimacion
+                FROM estimacion_fact_registroadministradores e
+                LEFT JOIN general_dim_cuartel c ON e.id_cuartel = c.id
+                LEFT JOIN estimacion_dim_tipo t ON e.id_tipoestimacion = t.id
+                WHERE e.id = %s
+            """
+            
+            cursor.execute(select_query, (estimacion_id,))
+            estimacion_creada = cursor.fetchone()
+            estimaciones_creadas.append(estimacion_creada)
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": f"{len(estimaciones_creadas)} estimaciones creadas exitosamente",
+            "data": {
+                "cuartel": cuartel_info,
+                "estimaciones_creadas": estimaciones_creadas,
+                "total_creadas": len(estimaciones_creadas)
+            }
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Error creando estimaciones masivo: {str(e)}")
         return jsonify({
             "success": False,
             "message": "Error interno del servidor",
