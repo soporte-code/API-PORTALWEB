@@ -485,6 +485,404 @@ def eliminar_configuracion_pauta(config_id):
         }), 500
 
 # =============================================================================
+# GESTIÓN DE ATRIBUTOS DE CULTIVO (conteo_dim_atributocultivo)
+# =============================================================================
+
+@pautas_bp.route('/atributos-cultivo', methods=['GET'])
+@jwt_required()
+def listar_atributos_cultivo():
+    """
+    Listar todos los atributos de cultivo
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        query = """
+            SELECT 
+                id,
+                nombre
+            FROM conteo_dim_atributocultivo
+            ORDER BY nombre
+        """
+        
+        cursor.execute(query)
+        atributos = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Atributos de cultivo obtenidos exitosamente",
+            "data": {
+                "atributos": atributos,
+                "total": len(atributos)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo atributos de cultivo: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/atributos-cultivo', methods=['POST'])
+@jwt_required()
+def crear_atributo_cultivo():
+    """
+    Crear un nuevo atributo de cultivo
+    """
+    try:
+        data = request.get_json()
+        
+        # Validar campos requeridos
+        if 'nombre' not in data:
+            return jsonify({
+                "success": False,
+                "message": "Campo requerido: nombre"
+            }), 400
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Insertar nuevo atributo
+        insert_query = """
+            INSERT INTO conteo_dim_atributocultivo (nombre) 
+            VALUES (%s)
+        """
+        
+        cursor.execute(insert_query, (data['nombre'],))
+        atributo_id = cursor.lastrowid
+        
+        # Obtener el atributo creado
+        select_query = """
+            SELECT id, nombre
+            FROM conteo_dim_atributocultivo
+            WHERE id = %s
+        """
+        
+        cursor.execute(select_query, (atributo_id,))
+        atributo_creado = cursor.fetchone()
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Atributo de cultivo creado exitosamente",
+            "data": atributo_creado
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Error creando atributo de cultivo: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/atributos-cultivo/<int:atributo_id>', methods=['PUT'])
+@jwt_required()
+def actualizar_atributo_cultivo(atributo_id):
+    """
+    Actualizar un atributo de cultivo existente
+    """
+    try:
+        data = request.get_json()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Construir query de actualización dinámicamente
+        campos_actualizables = ['nombre']
+        campos_a_actualizar = []
+        valores = []
+        
+        for campo in campos_actualizables:
+            if campo in data:
+                campos_a_actualizar.append(f"{campo} = %s")
+                valores.append(data[campo])
+        
+        if not campos_a_actualizar:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "No se proporcionaron campos para actualizar"
+            }), 400
+        
+        valores.append(atributo_id)
+        update_query = f"""
+            UPDATE conteo_dim_atributocultivo 
+            SET {', '.join(campos_a_actualizar)}
+            WHERE id = %s
+        """
+        
+        cursor.execute(update_query, valores)
+        
+        # Obtener el atributo actualizado
+        select_query = """
+            SELECT id, nombre
+            FROM conteo_dim_atributocultivo
+            WHERE id = %s
+        """
+        
+        cursor.execute(select_query, (atributo_id,))
+        atributo_actualizado = cursor.fetchone()
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Atributo de cultivo actualizado exitosamente",
+            "data": atributo_actualizado
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error actualizando atributo de cultivo {atributo_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/atributos-cultivo/<int:atributo_id>', methods=['DELETE'])
+@jwt_required()
+def eliminar_atributo_cultivo(atributo_id):
+    """
+    Eliminar un atributo de cultivo
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Eliminar atributo
+        delete_query = "DELETE FROM conteo_dim_atributocultivo WHERE id = %s"
+        cursor.execute(delete_query, (atributo_id,))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Atributo de cultivo eliminado exitosamente"
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error eliminando atributo de cultivo {atributo_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+# =============================================================================
+# GESTIÓN DE LABORES DE CONTEO (conteo_dim_laborconteo)
+# =============================================================================
+
+@pautas_bp.route('/labores-conteo', methods=['GET'])
+@jwt_required()
+def listar_labores_conteo():
+    """
+    Listar todas las labores de conteo
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        query = """
+            SELECT 
+                id,
+                nombre
+            FROM conteo_dim_laborconteo
+            ORDER BY nombre
+        """
+        
+        cursor.execute(query)
+        labores = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Labores de conteo obtenidas exitosamente",
+            "data": {
+                "labores": labores,
+                "total": len(labores)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo labores de conteo: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/labores-conteo', methods=['POST'])
+@jwt_required()
+def crear_labor_conteo():
+    """
+    Crear una nueva labor de conteo
+    """
+    try:
+        data = request.get_json()
+        
+        # Validar campos requeridos
+        if 'nombre' not in data:
+            return jsonify({
+                "success": False,
+                "message": "Campo requerido: nombre"
+            }), 400
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Insertar nueva labor
+        insert_query = """
+            INSERT INTO conteo_dim_laborconteo (nombre) 
+            VALUES (%s)
+        """
+        
+        cursor.execute(insert_query, (data['nombre'],))
+        labor_id = cursor.lastrowid
+        
+        # Obtener la labor creada
+        select_query = """
+            SELECT id, nombre
+            FROM conteo_dim_laborconteo
+            WHERE id = %s
+        """
+        
+        cursor.execute(select_query, (labor_id,))
+        labor_creada = cursor.fetchone()
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Labor de conteo creada exitosamente",
+            "data": labor_creada
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Error creando labor de conteo: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/labores-conteo/<int:labor_id>', methods=['PUT'])
+@jwt_required()
+def actualizar_labor_conteo(labor_id):
+    """
+    Actualizar una labor de conteo existente
+    """
+    try:
+        data = request.get_json()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Construir query de actualización dinámicamente
+        campos_actualizables = ['nombre']
+        campos_a_actualizar = []
+        valores = []
+        
+        for campo in campos_actualizables:
+            if campo in data:
+                campos_a_actualizar.append(f"{campo} = %s")
+                valores.append(data[campo])
+        
+        if not campos_a_actualizar:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "No se proporcionaron campos para actualizar"
+            }), 400
+        
+        valores.append(labor_id)
+        update_query = f"""
+            UPDATE conteo_dim_laborconteo 
+            SET {', '.join(campos_a_actualizar)}
+            WHERE id = %s
+        """
+        
+        cursor.execute(update_query, valores)
+        
+        # Obtener la labor actualizada
+        select_query = """
+            SELECT id, nombre
+            FROM conteo_dim_laborconteo
+            WHERE id = %s
+        """
+        
+        cursor.execute(select_query, (labor_id,))
+        labor_actualizada = cursor.fetchone()
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Labor de conteo actualizada exitosamente",
+            "data": labor_actualizada
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error actualizando labor de conteo {labor_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/labores-conteo/<int:labor_id>', methods=['DELETE'])
+@jwt_required()
+def eliminar_labor_conteo(labor_id):
+    """
+    Eliminar una labor de conteo
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Eliminar labor
+        delete_query = "DELETE FROM conteo_dim_laborconteo WHERE id = %s"
+        cursor.execute(delete_query, (labor_id,))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Labor de conteo eliminada exitosamente"
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error eliminando labor de conteo {labor_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+# =============================================================================
 # LABOR-ESPECIE-ATRIBUTO
 # =============================================================================
 
