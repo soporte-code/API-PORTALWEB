@@ -909,6 +909,252 @@ def eliminar_atributo_especie(relacion_id):
             "error": str(e)
         }), 500
 
+# =============================================================================
+# ENDPOINTS PARA FLUJO DE CREACIÓN DE PAUTAS
+# =============================================================================
+
+@pautas_bp.route('/cuartel-especie/<int:cuartel_id>', methods=['GET'])
+@jwt_required()
+def obtener_especie_por_cuartel(cuartel_id):
+    """
+    Obtener la especie de un cuartel específico a través de su variedad
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        query = """
+            SELECT 
+                c.id as id_cuartel,
+                c.nombre as nombre_cuartel,
+                c.id_variedad,
+                v.nombre as nombre_variedad,
+                v.id_especie,
+                e.nombre as nombre_especie,
+                e.caja_equivalente
+            FROM general_dim_cuartel c
+            LEFT JOIN general_dim_variedad v ON c.id_variedad = v.id
+            LEFT JOIN general_dim_especie e ON v.id_especie = e.id
+            WHERE c.id = %s
+        """
+        
+        cursor.execute(query, (cuartel_id,))
+        resultado = cursor.fetchone()
+        
+        cursor.close()
+        conn.close()
+        
+        if not resultado:
+            return jsonify({
+                "success": False,
+                "message": "Cuartel no encontrado"
+            }), 404
+        
+        return jsonify({
+            "success": True,
+            "message": "Especie del cuartel obtenida exitosamente",
+            "data": resultado
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo especie del cuartel {cuartel_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/labores-por-especie/<int:especie_id>', methods=['GET'])
+@jwt_required()
+def listar_labores_por_especie(especie_id):
+    """
+    Listar todas las labores disponibles para una especie específica
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        query = """
+            SELECT 
+                le.id,
+                le.id_labor,
+                le.id_especie,
+                le.id_estado,
+                l.nombre as nombre_labor,
+                e.nombre as nombre_especie,
+                e.caja_equivalente
+            FROM conteo_pivot_labor_especie le
+            LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
+            LEFT JOIN general_dim_especie e ON le.id_especie = e.id
+            WHERE le.id_especie = %s AND le.id_estado = 1
+            ORDER BY l.nombre
+        """
+        
+        cursor.execute(query, (especie_id,))
+        labores = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Labores de la especie obtenidas exitosamente",
+            "data": {
+                "labores": labores,
+                "total": len(labores)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo labores de especie {especie_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/atributos-por-labor-especie/<int:labor_id>/<int:especie_id>', methods=['GET'])
+@jwt_required()
+def listar_atributos_por_labor_especie(labor_id, especie_id):
+    """
+    Listar todos los atributos disponibles para una combinación labor-especie específica
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Primero verificar que existe la combinación labor-especie
+        check_query = """
+            SELECT id FROM conteo_pivot_labor_especie 
+            WHERE id_labor = %s AND id_especie = %s AND id_estado = 1
+        """
+        cursor.execute(check_query, (labor_id, especie_id))
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "No existe una combinación activa entre esta labor y especie"
+            }), 404
+        
+        # Obtener atributos configurados para esta combinación
+        query = """
+            SELECT 
+                cp.id,
+                cp.id_empresa,
+                cp.id_conteotipo,
+                cp.id_atributo,
+                cp.id_tipoplanta,
+                a.nombre as nombre_atributo,
+                tp.nombre as nombre_tipo_planta,
+                tp.factor_productivo,
+                tp.descripcion as descripcion_tipo_planta
+            FROM conteo_dim_configpauta cp
+            LEFT JOIN conteo_dim_atributocultivo a ON cp.id_atributo = a.id
+            LEFT JOIN mapeo_dim_tipoplanta tp ON LPAD(cp.id_tipoplanta, 2, '0') = tp.id
+            LEFT JOIN conteo_pivot_labor_especie le ON cp.id_conteotipo = le.id
+            WHERE le.id_labor = %s AND le.id_especie = %s
+            ORDER BY a.nombre
+        """
+        
+        cursor.execute(query, (labor_id, especie_id))
+        atributos = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Atributos de la combinación labor-especie obtenidos exitosamente",
+            "data": {
+                "atributos": atributos,
+                "total": len(atributos)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo atributos de labor {labor_id} y especie {especie_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/formulario-dinamico/<int:labor_id>/<int:especie_id>', methods=['GET'])
+@jwt_required()
+def generar_formulario_dinamico(labor_id, especie_id):
+    """
+    Generar formulario dinámico completo para una combinación labor-especie
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Obtener información de labor y especie
+        info_query = """
+            SELECT 
+                l.nombre as nombre_labor,
+                e.nombre as nombre_especie,
+                e.caja_equivalente
+            FROM conteo_pivot_labor_especie le
+            LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
+            LEFT JOIN general_dim_especie e ON le.id_especie = e.id
+            WHERE le.id_labor = %s AND le.id_especie = %s AND le.id_estado = 1
+        """
+        
+        cursor.execute(info_query, (labor_id, especie_id))
+        info_labor_especie = cursor.fetchone()
+        
+        if not info_labor_especie:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "No existe una combinación activa entre esta labor y especie"
+            }), 404
+        
+        # Obtener atributos configurados
+        atributos_query = """
+            SELECT 
+                cp.id,
+                cp.id_atributo,
+                cp.id_tipoplanta,
+                a.nombre as nombre_atributo,
+                tp.nombre as nombre_tipo_planta,
+                tp.factor_productivo,
+                tp.descripcion as descripcion_tipo_planta
+            FROM conteo_dim_configpauta cp
+            LEFT JOIN conteo_dim_atributocultivo a ON cp.id_atributo = a.id
+            LEFT JOIN mapeo_dim_tipoplanta tp ON LPAD(cp.id_tipoplanta, 2, '0') = tp.id
+            LEFT JOIN conteo_pivot_labor_especie le ON cp.id_conteotipo = le.id
+            WHERE le.id_labor = %s AND le.id_especie = %s
+            ORDER BY a.nombre
+        """
+        
+        cursor.execute(atributos_query, (labor_id, especie_id))
+        atributos = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Formulario dinámico generado exitosamente",
+            "data": {
+                "labor_especie": info_labor_especie,
+                "atributos": atributos,
+                "total_atributos": len(atributos)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error generando formulario dinámico para labor {labor_id} y especie {especie_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
 @pautas_bp.route('/tipos-planta', methods=['GET'])
 @jwt_required()
 def listar_tipos_planta():
@@ -953,100 +1199,6 @@ def listar_tipos_planta():
             "error": str(e)
         }), 500
 
-# =============================================================================
-# GENERACIÓN DE FORMULARIO DINÁMICO
-# =============================================================================
-
-@pautas_bp.route('/formulario/<int:labor_id>/<int:especie_id>', methods=['GET'])
-@jwt_required()
-def generar_formulario_dinamico(labor_id, especie_id):
-    """
-    Generar formulario dinámico basado en labor y especie
-    """
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        
-        # Verificar que la combinación labor-especie existe
-        labor_especie_query = """
-            SELECT 
-                le.id,
-                le.id_labor,
-                le.id_especie,
-                le.id_estado,
-                l.nombre as nombre_labor,
-                e.nombre as nombre_especie
-            FROM conteo_pivot_labor_especie le
-            LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
-            LEFT JOIN general_dim_especie e ON le.id_especie = e.id
-            WHERE le.id_labor = %s AND le.id_especie = %s
-        """
-        
-        cursor.execute(labor_especie_query, (labor_id, especie_id))
-        labor_especie = cursor.fetchone()
-        
-        if not labor_especie:
-            cursor.close()
-            conn.close()
-            return jsonify({
-                "success": False,
-                "message": "Combinación labor-especie no encontrada"
-            }), 404
-        
-        # Obtener configuración de pauta para esta combinación
-        configuracion_query = """
-            SELECT 
-                cp.id,
-                cp.id_atributo,
-                cp.id_tipoplanta,
-                a.nombre as nombre_atributo,
-                tp.nombre as nombre_tipo_planta
-            FROM conteo_dim_configpauta cp
-            LEFT JOIN conteo_dim_atributocultivo a ON cp.id_atributo = a.id
-            LEFT JOIN mapeo_dim_tipoplanta tp ON LPAD(cp.id_tipoplanta, 2, '0') = tp.id
-            WHERE cp.id_conteotipo = %s
-            ORDER BY a.nombre
-        """
-        
-        cursor.execute(configuracion_query, (labor_especie['id'],))
-        configuraciones = cursor.fetchall()
-        
-        # Obtener tipos de planta disponibles
-        tipos_planta_query = """
-            SELECT 
-                id,
-                nombre,
-                factor_productivo,
-                id_empresa,
-                descripcion
-            FROM mapeo_dim_tipoplanta
-            ORDER BY nombre
-        """
-        
-        cursor.execute(tipos_planta_query)
-        tipos_planta = cursor.fetchall()
-        
-        cursor.close()
-        conn.close()
-        
-        return jsonify({
-            "success": True,
-            "message": "Formulario generado exitosamente",
-            "data": {
-                "labor_especie": labor_especie,
-                "configuraciones": configuraciones,
-                "tipos_planta": tipos_planta,
-                "total_atributos": len(configuraciones)
-            }
-        }), 200
-        
-    except Exception as e:
-        logger.error(f"Error generando formulario para labor {labor_id}, especie {especie_id}: {str(e)}")
-        return jsonify({
-            "success": False,
-            "message": "Error interno del servidor",
-            "error": str(e)
-        }), 500
 
 # =============================================================================
 # GESTIÓN DE PAUTAS (conteo_fact_pauta)
