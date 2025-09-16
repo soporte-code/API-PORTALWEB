@@ -426,7 +426,7 @@ def crear_labor_conteo():
         }), 500
 
 # =============================================================================
-# LABOR-ESPECIE-ATRIBUTO
+# GESTIÓN DE TABLAS PIVOT - LABOR-ESPECIE
 # =============================================================================
 
 @pautas_bp.route('/labor-especie', methods=['GET'])
@@ -471,6 +471,438 @@ def listar_labor_especie():
         
     except Exception as e:
         logger.error(f"Error obteniendo labor-especie: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/labor-especie', methods=['POST'])
+@jwt_required()
+def crear_labor_especie():
+    """
+    Crear una nueva combinación labor-especie
+    """
+    try:
+        data = request.get_json()
+        
+        # Validar campos requeridos
+        campos_requeridos = ['id_labor', 'id_especie']
+        for campo in campos_requeridos:
+            if campo not in data:
+                return jsonify({
+                    "success": False,
+                    "message": f"Campo requerido: {campo}"
+                }), 400
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Verificar que no existe ya esta combinación
+        check_query = """
+            SELECT id FROM conteo_pivot_labor_especie 
+            WHERE id_labor = %s AND id_especie = %s
+        """
+        cursor.execute(check_query, (data['id_labor'], data['id_especie']))
+        if cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Ya existe una combinación entre esta labor y especie"
+            }), 400
+        
+        # Insertar nueva combinación
+        insert_query = """
+            INSERT INTO conteo_pivot_labor_especie 
+            (id_labor, id_especie, id_estado) 
+            VALUES (%s, %s, %s)
+        """
+        
+        cursor.execute(insert_query, (
+            data['id_labor'],
+            data['id_especie'],
+            data.get('id_estado', 1)  # Por defecto activo
+        ))
+        
+        relacion_id = cursor.lastrowid
+        
+        # Obtener la combinación creada
+        select_query = """
+            SELECT 
+                le.id,
+                le.id_labor,
+                le.id_especie,
+                le.id_estado,
+                l.nombre as nombre_labor,
+                e.nombre as nombre_especie,
+                e.caja_equivalente
+            FROM conteo_pivot_labor_especie le
+            LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
+            LEFT JOIN general_dim_especie e ON le.id_especie = e.id
+            WHERE le.id = %s
+        """
+        
+        cursor.execute(select_query, (relacion_id,))
+        relacion_creada = cursor.fetchone()
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Combinación labor-especie creada exitosamente",
+            "data": relacion_creada
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Error creando labor-especie: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/labor-especie/<int:relacion_id>', methods=['PUT'])
+@jwt_required()
+def actualizar_labor_especie(relacion_id):
+    """
+    Actualizar una combinación labor-especie existente
+    """
+    try:
+        data = request.get_json()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Construir query de actualización dinámicamente
+        campos_actualizables = ['id_labor', 'id_especie', 'id_estado']
+        campos_a_actualizar = []
+        valores = []
+        
+        for campo in campos_actualizables:
+            if campo in data:
+                campos_a_actualizar.append(f"{campo} = %s")
+                valores.append(data[campo])
+        
+        if not campos_a_actualizar:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "No se proporcionaron campos para actualizar"
+            }), 400
+        
+        valores.append(relacion_id)
+        update_query = f"""
+            UPDATE conteo_pivot_labor_especie 
+            SET {', '.join(campos_a_actualizar)}
+            WHERE id = %s
+        """
+        
+        cursor.execute(update_query, valores)
+        
+        # Obtener la combinación actualizada
+        select_query = """
+            SELECT 
+                le.id,
+                le.id_labor,
+                le.id_especie,
+                le.id_estado,
+                l.nombre as nombre_labor,
+                e.nombre as nombre_especie,
+                e.caja_equivalente
+            FROM conteo_pivot_labor_especie le
+            LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
+            LEFT JOIN general_dim_especie e ON le.id_especie = e.id
+            WHERE le.id = %s
+        """
+        
+        cursor.execute(select_query, (relacion_id,))
+        relacion_actualizada = cursor.fetchone()
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Combinación labor-especie actualizada exitosamente",
+            "data": relacion_actualizada
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error actualizando labor-especie {relacion_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/labor-especie/<int:relacion_id>', methods=['DELETE'])
+@jwt_required()
+def eliminar_labor_especie(relacion_id):
+    """
+    Eliminar una combinación labor-especie
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Eliminar combinación
+        delete_query = "DELETE FROM conteo_pivot_labor_especie WHERE id = %s"
+        cursor.execute(delete_query, (relacion_id,))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Combinación labor-especie eliminada exitosamente"
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error eliminando labor-especie {relacion_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+# =============================================================================
+# GESTIÓN DE TABLAS PIVOT - ATRIBUTO-ESPECIE
+# =============================================================================
+
+@pautas_bp.route('/atributo-especie', methods=['GET'])
+@jwt_required()
+def listar_atributo_especie():
+    """
+    Listar todas las relaciones atributo-especie
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        query = """
+            SELECT 
+                ae.id,
+                ae.id_atributo,
+                ae.id_especie,
+                a.nombre as nombre_atributo,
+                e.nombre as nombre_especie,
+                e.caja_equivalente
+            FROM conteo_pivot_atributo_especie ae
+            LEFT JOIN conteo_dim_atributocultivo a ON ae.id_atributo = a.id
+            LEFT JOIN general_dim_especie e ON ae.id_especie = e.id
+            ORDER BY a.nombre, e.nombre
+        """
+        
+        cursor.execute(query)
+        atributos_especie = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Relaciones atributo-especie obtenidas exitosamente",
+            "data": {
+                "atributos_especie": atributos_especie,
+                "total": len(atributos_especie)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo atributo-especie: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/atributo-especie', methods=['POST'])
+@jwt_required()
+def crear_atributo_especie():
+    """
+    Crear una nueva relación atributo-especie
+    """
+    try:
+        data = request.get_json()
+        
+        # Validar campos requeridos
+        campos_requeridos = ['id_atributo', 'id_especie']
+        for campo in campos_requeridos:
+            if campo not in data:
+                return jsonify({
+                    "success": False,
+                    "message": f"Campo requerido: {campo}"
+                }), 400
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Verificar que no existe ya esta relación
+        check_query = """
+            SELECT id FROM conteo_pivot_atributo_especie 
+            WHERE id_atributo = %s AND id_especie = %s
+        """
+        cursor.execute(check_query, (data['id_atributo'], data['id_especie']))
+        if cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Ya existe una relación entre este atributo y especie"
+            }), 400
+        
+        # Insertar nueva relación
+        insert_query = """
+            INSERT INTO conteo_pivot_atributo_especie 
+            (id_atributo, id_especie) 
+            VALUES (%s, %s)
+        """
+        
+        cursor.execute(insert_query, (data['id_atributo'], data['id_especie']))
+        relacion_id = cursor.lastrowid
+        
+        # Obtener la relación creada
+        select_query = """
+            SELECT 
+                ae.id,
+                ae.id_atributo,
+                ae.id_especie,
+                a.nombre as nombre_atributo,
+                e.nombre as nombre_especie,
+                e.caja_equivalente
+            FROM conteo_pivot_atributo_especie ae
+            LEFT JOIN conteo_dim_atributocultivo a ON ae.id_atributo = a.id
+            LEFT JOIN general_dim_especie e ON ae.id_especie = e.id
+            WHERE ae.id = %s
+        """
+        
+        cursor.execute(select_query, (relacion_id,))
+        relacion_creada = cursor.fetchone()
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Relación atributo-especie creada exitosamente",
+            "data": relacion_creada
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Error creando atributo-especie: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/atributo-especie/<int:relacion_id>', methods=['PUT'])
+@jwt_required()
+def actualizar_atributo_especie(relacion_id):
+    """
+    Actualizar una relación atributo-especie existente
+    """
+    try:
+        data = request.get_json()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Construir query de actualización dinámicamente
+        campos_actualizables = ['id_atributo', 'id_especie']
+        campos_a_actualizar = []
+        valores = []
+        
+        for campo in campos_actualizables:
+            if campo in data:
+                campos_a_actualizar.append(f"{campo} = %s")
+                valores.append(data[campo])
+        
+        if not campos_a_actualizar:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "No se proporcionaron campos para actualizar"
+            }), 400
+        
+        valores.append(relacion_id)
+        update_query = f"""
+            UPDATE conteo_pivot_atributo_especie 
+            SET {', '.join(campos_a_actualizar)}
+            WHERE id = %s
+        """
+        
+        cursor.execute(update_query, valores)
+        
+        # Obtener la relación actualizada
+        select_query = """
+            SELECT 
+                ae.id,
+                ae.id_atributo,
+                ae.id_especie,
+                a.nombre as nombre_atributo,
+                e.nombre as nombre_especie,
+                e.caja_equivalente
+            FROM conteo_pivot_atributo_especie ae
+            LEFT JOIN conteo_dim_atributocultivo a ON ae.id_atributo = a.id
+            LEFT JOIN general_dim_especie e ON ae.id_especie = e.id
+            WHERE ae.id = %s
+        """
+        
+        cursor.execute(select_query, (relacion_id,))
+        relacion_actualizada = cursor.fetchone()
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Relación atributo-especie actualizada exitosamente",
+            "data": relacion_actualizada
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error actualizando atributo-especie {relacion_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/atributo-especie/<int:relacion_id>', methods=['DELETE'])
+@jwt_required()
+def eliminar_atributo_especie(relacion_id):
+    """
+    Eliminar una relación atributo-especie
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Eliminar relación
+        delete_query = "DELETE FROM conteo_pivot_atributo_especie WHERE id = %s"
+        cursor.execute(delete_query, (relacion_id,))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Relación atributo-especie eliminada exitosamente"
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error eliminando atributo-especie {relacion_id}: {str(e)}")
         return jsonify({
             "success": False,
             "message": "Error interno del servidor",
