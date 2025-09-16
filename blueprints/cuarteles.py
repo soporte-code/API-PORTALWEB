@@ -123,6 +123,109 @@ def listar_cuarteles():
             "message": "Error interno del servidor"
         }), 500
 
+@cuarteles_bp.route('/cuarteles/sucursal-activa', methods=['GET'])
+@jwt_required()
+def listar_cuarteles_sucursal_activa():
+    """
+    Listar cuarteles de la sucursal activa del usuario autenticado
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Primero obtener la sucursal activa del usuario
+        user_query = """
+            SELECT 
+                u.id,
+                u.id_sucursalactiva,
+                s.nombre as sucursal_nombre
+            FROM general_dim_usuario u
+            LEFT JOIN general_dim_sucursal s ON u.id_sucursalactiva = s.id
+            WHERE u.id = %s
+        """
+        
+        cursor.execute(user_query, (user_id,))
+        user_info = cursor.fetchone()
+        
+        if not user_info:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Usuario no encontrado"
+            }), 404
+        
+        if not user_info['id_sucursalactiva']:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Usuario sin sucursal activa asignada"
+            }), 400
+        
+        # Query para obtener cuarteles de la sucursal activa
+        cuarteles_query = """
+            SELECT 
+                c.id,
+                c.id_ceco,
+                c.nombre,
+                c.id_variedad,
+                c.superficie,
+                c.ano_plantacion,
+                c.dsh,
+                c.deh,
+                c.id_propiedad,
+                c.id_portainjerto,
+                c.subdivisionesplanta,
+                c.id_estado,
+                c.fecha_baja,
+                c.id_estadoproductivo,
+                c.n_hileras,
+                c.id_estadocatastro,
+                c.id_tiposubdivision,
+                v.nombre as nombre_variedad,
+                e.nombre as nombre_especie,
+                s.id as id_sucursal,
+                s.nombre as sucursal_nombre
+            FROM general_dim_cuartel c
+            LEFT JOIN general_dim_variedad v ON c.id_variedad = v.id
+            LEFT JOIN general_dim_especie e ON v.id_especie = e.id
+            LEFT JOIN general_dim_ceco ce ON c.id_ceco = ce.id
+            LEFT JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
+            WHERE s.id = %s 
+              AND c.id_estado = 1
+            ORDER BY c.nombre
+        """
+        
+        cursor.execute(cuarteles_query, (user_info['id_sucursalactiva'],))
+        cuarteles = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Cuarteles de la sucursal activa obtenidos exitosamente",
+            "data": {
+                "cuarteles": cuarteles,
+                "total": len(cuarteles),
+                "sucursal_info": {
+                    "id_sucursal": user_info['id_sucursalactiva'],
+                    "nombre_sucursal": user_info['sucursal_nombre']
+                }
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo cuarteles de sucursal activa: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
 @cuarteles_bp.route('/cuarteles/<int:cuartel_id>', methods=['GET'])
 @jwt_required()
 def obtener_cuartel(cuartel_id):
