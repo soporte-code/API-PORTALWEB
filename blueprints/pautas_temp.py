@@ -1,0 +1,2123 @@
+from flask import Blueprint, request, jsonify
+from flask_jwt_extended import jwt_required, get_jwt_identity
+from utils.db import get_db_connection
+import logging
+
+# Configurar logging
+logger = logging.getLogger(__name__)
+
+# Crear blueprint para pautas
+pautas_bp = Blueprint('pautas', __name__)
+
+# =============================================================================
+# CONFIGURACIÓN DE PAUTAS (conteo_dim_configpauta)
+# =============================================================================
+
+@pautas_bp.route('/configuraciones', methods=['GET'])
+@jwt_required()
+def listar_configuraciones_pauta():
+    """
+    Listar todas las configuraciones de pauta
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Primero verificar si la tabla existe
+        cursor.execute("SHOW TABLES LIKE 'conteo_dim_configpauta'")
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": True,
+                "message": "Tabla de configuraciones de pauta no existe",
+                "data": {
+                    "configuraciones": [],
+                    "total": 0
+                }
+            }), 200
+        
+        # Consulta básica primero para ver qué datos hay
+        query_basica = """
+            SELECT 
+                cp.id,
+                cp.id_empresa,
+                cp.id_conteotipo,
+                cp.id_atributo,
+                cp.id_tipoplanta
+            FROM conteo_dim_configpauta cp
+            ORDER BY cp.id
+        """
+        
+        cursor.execute(query_basica)
+        configuraciones_basicas = cursor.fetchall()
+        
+        # Si no hay configuraciones básicas, retornar vacío
+        if not configuraciones_basicas:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": True,
+                "message": "No hay configuraciones de pauta en la base de datos",
+                "data": {
+                    "configuraciones": [],
+                    "total": 0
+                }
+            }), 200
+        
+        # Ahora hacer la consulta completa con JOINs
+        query_completa = """
+            SELECT 
+                cp.id,
+                cp.id_empresa,
+                cp.id_conteotipo,
+                cp.id_atributo,
+                cp.id_tipoplanta,
+                a.nombre as nombre_atributo,
+                le.id_labor,
+                le.id_especie,
+                l.nombre as nombre_labor,
+                e.nombre as nombre_especie,
+                tp.nombre as nombre_tipo_planta
+            FROM conteo_dim_configpauta cp
+            LEFT JOIN conteo_dim_atributocultivo a ON cp.id_atributo = a.id
+            LEFT JOIN conteo_pivot_labor_especie le ON cp.id_conteotipo = le.id
+            LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
+            LEFT JOIN general_dim_especie e ON le.id_especie = e.id
+            LEFT JOIN mapeo_dim_tipoplanta tp ON LPAD(cp.id_tipoplanta, 2, '0') = tp.id
+            ORDER BY cp.id
+        """
+        
+        cursor.execute(query_completa)
+        configuraciones = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Configuraciones de pauta obtenidas exitosamente",
+            "data": {
+                "configuraciones": configuraciones,
+                "total": len(configuraciones)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo configuraciones de pauta: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/debug-tablas', methods=['GET'])
+@jwt_required()
+def debug_tablas_pautas():
+    """
+    Endpoint de debug para verificar qué tablas existen y qué datos tienen
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        resultado = {
+            "tablas_existentes": [],
+            "datos_tablas": {},
+            "errores": []
+        }
+        
+        # Lista de tablas relacionadas con pautas
+        tablas_pautas = [
+            'conteo_dim_configpauta',
+            'conteo_dim_atributocultivo', 
+            'conteo_pivot_labor_especie',
+            'conteo_dim_laborconteo',
+            'general_dim_especie',
+            'mapeo_dim_tipoplanta',
+            'conteo_fact_pauta',
+            'conteo_fact_detallepauta'
+        ]
+        
+        # Verificar qué tablas existen
+        for tabla in tablas_pautas:
+            try:
+                cursor.execute(f"SHOW TABLES LIKE '{tabla}'")
+                if cursor.fetchone():
+                    resultado["tablas_existentes"].append(tabla)
+                    
+                    # Contar registros en cada tabla
+                    cursor.execute(f"SELECT COUNT(*) as total FROM {tabla}")
+                    count_result = cursor.fetchone()
+                    resultado["datos_tablas"][tabla] = count_result["total"]
+                    
+                    # Si hay datos, mostrar algunos ejemplos
+                    if count_result["total"] > 0:
+                        cursor.execute(f"SELECT * FROM {tabla} LIMIT 3")
+                        ejemplos = cursor.fetchall()
+                        resultado["datos_tablas"][f"{tabla}_ejemplos"] = ejemplos
+                        
+            except Exception as e:
+                resultado["errores"].append(f"Error en tabla {tabla}: {str(e)}")
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Debug de tablas completado",
+            "data": resultado
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error en debug de tablas: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/configuraciones-agrupadas', methods=['GET'])
+@jwt_required()
+def listar_configuraciones_agrupadas():
+    """
+    Listar configuraciones de pauta agrupadas por tipo de conteo (labor-especie)
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Primero verificar si la tabla existe
+        cursor.execute("SHOW TABLES LIKE 'conteo_dim_configpauta'")
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": True,
+                "message": "Tabla de configuraciones de pauta no existe",
+                "data": {
+                    "tipos_conteo": [],
+                    "total_tipos_conteo": 0,
+                    "total_configuraciones": 0
+                }
+            }), 200
+        
+        # Consulta para obtener configuraciones agrupadas por tipo de conteo
+        query = """
+            SELECT 
+                cp.id_conteotipo,
+                l.nombre as nombre_labor,
+                e.nombre as nombre_especie,
+                COUNT(cp.id) as total_configuraciones,
+                GROUP_CONCAT(
+                    CONCAT(
+                        cp.id, '|',
+                        cp.id_empresa, '|',
+                        cp.id_conteotipo, '|',
+                        cp.id_atributo, '|',
+                        cp.id_tipoplanta, '|',
+                        a.nombre, '|',
+                        COALESCE(tp.nombre, 'Sin tipo')
+                    ) SEPARATOR '||'
+                ) as configuraciones_raw
+            FROM conteo_dim_configpauta cp
+            LEFT JOIN conteo_pivot_labor_especie le ON cp.id_conteotipo = le.id
+            LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
+            LEFT JOIN general_dim_especie e ON le.id_especie = e.id
+            LEFT JOIN conteo_dim_atributocultivo a ON cp.id_atributo = a.id
+            LEFT JOIN mapeo_dim_tipoplanta tp ON LPAD(cp.id_tipoplanta, 2, '0') = tp.id
+            GROUP BY cp.id_conteotipo, l.nombre, e.nombre
+            ORDER BY l.nombre, e.nombre
+        """
+        
+        cursor.execute(query)
+        grupos = cursor.fetchall()
+        
+        # Procesar los resultados
+        tipos_conteo = []
+        total_configuraciones = 0
+        
+        for grupo in grupos:
+            configuraciones = []
+            
+            if grupo['configuraciones_raw']:
+                # Parsear las configuraciones del GROUP_CONCAT
+                configuraciones_raw = grupo['configuraciones_raw'].split('||')
+                
+                for config_raw in configuraciones_raw:
+                    if config_raw:
+                        partes = config_raw.split('|')
+                        if len(partes) >= 7:
+                            configuraciones.append({
+                                'id': int(partes[0]),
+                                'id_empresa': int(partes[1]),
+                                'id_conteotipo': int(partes[2]),
+                                'id_atributo': int(partes[3]),
+                                'id_tipoplanta': partes[4] if partes[4] else None,
+                                'nombre_atributo': partes[5],
+                                'nombre_tipo_planta': partes[6]
+                            })
+            
+            tipos_conteo.append({
+                'id_conteotipo': grupo['id_conteotipo'],
+                'nombre_labor': grupo['nombre_labor'],
+                'nombre_especie': grupo['nombre_especie'],
+                'total_configuraciones': grupo['total_configuraciones'],
+                'configuraciones': configuraciones
+            })
+            
+            total_configuraciones += grupo['total_configuraciones']
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Configuraciones agrupadas obtenidas exitosamente",
+            "data": {
+                "tipos_conteo": tipos_conteo,
+                "total_tipos_conteo": len(tipos_conteo),
+                "total_configuraciones": total_configuraciones
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo configuraciones agrupadas: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/configuraciones', methods=['POST'])
+@jwt_required()
+def crear_configuracion_pauta():
+    """
+    Crear una nueva configuración de pauta
+    """
+    try:
+        data = request.get_json()
+        
+        # Validar campos requeridos
+        campos_requeridos = ['id_empresa', 'id_conteotipo', 'id_atributo']
+        for campo in campos_requeridos:
+            if campo not in data:
+                return jsonify({
+                    "success": False,
+                    "message": f"Campo requerido: {campo}"
+                }), 400
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Insertar nueva configuración
+        insert_query = """
+            INSERT INTO conteo_dim_configpauta 
+            (id_empresa, id_conteotipo, id_atributo, id_tipoplanta) 
+            VALUES (%s, %s, %s, %s)
+        """
+        
+        cursor.execute(insert_query, (
+            data['id_empresa'],
+            data['id_conteotipo'],
+            data['id_atributo'],
+            data.get('id_tipoplanta')  # Opcional
+        ))
+        
+        configuracion_id = cursor.lastrowid
+        
+        # Obtener la configuración creada
+        select_query = """
+            SELECT 
+                cp.id,
+                cp.id_empresa,
+                cp.id_conteotipo,
+                cp.id_atributo,
+                cp.id_tipoplanta,
+                a.nombre as nombre_atributo,
+                le.id_labor,
+                le.id_especie,
+                l.nombre as nombre_labor,
+                e.nombre as nombre_especie,
+                tp.nombre as nombre_tipo_planta
+            FROM conteo_dim_configpauta cp
+            LEFT JOIN conteo_dim_atributocultivo a ON cp.id_atributo = a.id
+            LEFT JOIN conteo_pivot_labor_especie le ON cp.id_conteotipo = le.id
+            LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
+            LEFT JOIN general_dim_especie e ON le.id_especie = e.id
+            LEFT JOIN mapeo_dim_tipoplanta tp ON LPAD(cp.id_tipoplanta, 2, '0') = tp.id
+            WHERE cp.id = %s
+        """
+        
+        cursor.execute(select_query, (configuracion_id,))
+        configuracion_creada = cursor.fetchone()
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Configuración de pauta creada exitosamente",
+            "data": configuracion_creada
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Error creando configuración de pauta: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/configuraciones/<int:config_id>', methods=['PUT'])
+@jwt_required()
+def actualizar_configuracion_pauta(config_id):
+    """
+    Actualizar una configuración de pauta existente
+    """
+    try:
+        data = request.get_json()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Construir query de actualización dinámicamente
+        campos_actualizables = ['id_empresa', 'id_conteotipo', 'id_atributo', 'id_tipoplanta']
+        campos_a_actualizar = []
+        valores = []
+        
+        for campo in campos_actualizables:
+            if campo in data:
+                campos_a_actualizar.append(f"{campo} = %s")
+                valores.append(data[campo])
+        
+        if not campos_a_actualizar:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "No se proporcionaron campos para actualizar"
+            }), 400
+        
+        valores.append(config_id)
+        update_query = f"""
+            UPDATE conteo_dim_configpauta 
+            SET {', '.join(campos_a_actualizar)}
+            WHERE id = %s
+        """
+        
+        cursor.execute(update_query, valores)
+        
+        # Obtener la configuración actualizada
+        select_query = """
+            SELECT 
+                cp.id,
+                cp.id_empresa,
+                cp.id_conteotipo,
+                cp.id_atributo,
+                cp.id_tipoplanta,
+                a.nombre as nombre_atributo,
+                le.id_labor,
+                le.id_especie,
+                l.nombre as nombre_labor,
+                e.nombre as nombre_especie,
+                tp.nombre as nombre_tipo_planta
+            FROM conteo_dim_configpauta cp
+            LEFT JOIN conteo_dim_atributocultivo a ON cp.id_atributo = a.id
+            LEFT JOIN conteo_pivot_labor_especie le ON cp.id_conteotipo = le.id
+            LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
+            LEFT JOIN general_dim_especie e ON le.id_especie = e.id
+            LEFT JOIN mapeo_dim_tipoplanta tp ON LPAD(cp.id_tipoplanta, 2, '0') = tp.id
+            WHERE cp.id = %s
+        """
+        
+        cursor.execute(select_query, (config_id,))
+        configuracion_actualizada = cursor.fetchone()
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Configuración de pauta actualizada exitosamente",
+            "data": configuracion_actualizada
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error actualizando configuración de pauta {config_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/configuraciones/<int:config_id>', methods=['DELETE'])
+@jwt_required()
+def eliminar_configuracion_pauta(config_id):
+    """
+    Eliminar una configuración de pauta
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Eliminar configuración
+        delete_query = "DELETE FROM conteo_dim_configpauta WHERE id = %s"
+        cursor.execute(delete_query, (config_id,))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Configuración de pauta eliminada exitosamente"
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error eliminando configuración de pauta {config_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+# =============================================================================
+# GESTIÓN DE ATRIBUTOS DE CULTIVO (conteo_dim_atributocultivo)
+# =============================================================================
+
+@pautas_bp.route('/atributos-cultivo', methods=['GET'])
+@jwt_required()
+def listar_atributos_cultivo():
+    """
+    Listar todos los atributos de cultivo
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        query = """
+            SELECT 
+                id,
+                nombre
+            FROM conteo_dim_atributocultivo
+            ORDER BY nombre
+        """
+        
+        cursor.execute(query)
+        atributos = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Atributos de cultivo obtenidos exitosamente",
+            "data": {
+                "atributos": atributos,
+                "total": len(atributos)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo atributos de cultivo: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/atributos-cultivo', methods=['POST'])
+@jwt_required()
+def crear_atributo_cultivo():
+    """
+    Crear un nuevo atributo de cultivo
+    """
+    try:
+        data = request.get_json()
+        
+        # Validar campos requeridos
+        if 'nombre' not in data:
+            return jsonify({
+                "success": False,
+                "message": "Campo requerido: nombre"
+            }), 400
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Insertar nuevo atributo
+        insert_query = """
+            INSERT INTO conteo_dim_atributocultivo (nombre) 
+            VALUES (%s)
+        """
+        
+        cursor.execute(insert_query, (data['nombre'],))
+        atributo_id = cursor.lastrowid
+        
+        # Obtener el atributo creado
+        select_query = """
+            SELECT id, nombre
+            FROM conteo_dim_atributocultivo
+            WHERE id = %s
+        """
+        
+        cursor.execute(select_query, (atributo_id,))
+        atributo_creado = cursor.fetchone()
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Atributo de cultivo creado exitosamente",
+            "data": atributo_creado
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Error creando atributo de cultivo: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/atributos-cultivo/<int:atributo_id>', methods=['PUT'])
+@jwt_required()
+def actualizar_atributo_cultivo(atributo_id):
+    """
+    Actualizar un atributo de cultivo existente
+    """
+    try:
+        data = request.get_json()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Construir query de actualización dinámicamente
+        campos_actualizables = ['nombre']
+        campos_a_actualizar = []
+        valores = []
+        
+        for campo in campos_actualizables:
+            if campo in data:
+                campos_a_actualizar.append(f"{campo} = %s")
+                valores.append(data[campo])
+        
+        if not campos_a_actualizar:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "No se proporcionaron campos para actualizar"
+            }), 400
+        
+        valores.append(atributo_id)
+        update_query = f"""
+            UPDATE conteo_dim_atributocultivo 
+            SET {', '.join(campos_a_actualizar)}
+            WHERE id = %s
+        """
+        
+        cursor.execute(update_query, valores)
+        
+        # Obtener el atributo actualizado
+        select_query = """
+            SELECT id, nombre
+            FROM conteo_dim_atributocultivo
+            WHERE id = %s
+        """
+        
+        cursor.execute(select_query, (atributo_id,))
+        atributo_actualizado = cursor.fetchone()
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Atributo de cultivo actualizado exitosamente",
+            "data": atributo_actualizado
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error actualizando atributo de cultivo {atributo_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/atributos-cultivo/<int:atributo_id>', methods=['DELETE'])
+@jwt_required()
+def eliminar_atributo_cultivo(atributo_id):
+    """
+    Eliminar un atributo de cultivo
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Eliminar atributo
+        delete_query = "DELETE FROM conteo_dim_atributocultivo WHERE id = %s"
+        cursor.execute(delete_query, (atributo_id,))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Atributo de cultivo eliminado exitosamente"
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error eliminando atributo de cultivo {atributo_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+# =============================================================================
+# GESTIÓN DE LABORES DE CONTEO (conteo_dim_laborconteo)
+# =============================================================================
+
+@pautas_bp.route('/labores-conteo', methods=['GET'])
+@jwt_required()
+def listar_labores_conteo():
+    """
+    Listar todas las labores de conteo
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        query = """
+            SELECT 
+                id,
+                nombre
+            FROM conteo_dim_laborconteo
+            ORDER BY nombre
+        """
+        
+        cursor.execute(query)
+        labores = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Labores de conteo obtenidas exitosamente",
+            "data": {
+                "labores": labores,
+                "total": len(labores)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo labores de conteo: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/labores-conteo', methods=['POST'])
+@jwt_required()
+def crear_labor_conteo():
+    """
+    Crear una nueva labor de conteo
+    """
+    try:
+        data = request.get_json()
+        
+        # Validar campos requeridos
+        if 'nombre' not in data:
+            return jsonify({
+                "success": False,
+                "message": "Campo requerido: nombre"
+            }), 400
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Insertar nueva labor
+        insert_query = """
+            INSERT INTO conteo_dim_laborconteo (nombre) 
+            VALUES (%s)
+        """
+        
+        cursor.execute(insert_query, (data['nombre'],))
+        labor_id = cursor.lastrowid
+        
+        # Obtener la labor creada
+        select_query = """
+            SELECT id, nombre
+            FROM conteo_dim_laborconteo
+            WHERE id = %s
+        """
+        
+        cursor.execute(select_query, (labor_id,))
+        labor_creada = cursor.fetchone()
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Labor de conteo creada exitosamente",
+            "data": labor_creada
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Error creando labor de conteo: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/labores-conteo/<int:labor_id>', methods=['PUT'])
+@jwt_required()
+def actualizar_labor_conteo(labor_id):
+    """
+    Actualizar una labor de conteo existente
+    """
+    try:
+        data = request.get_json()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Construir query de actualización dinámicamente
+        campos_actualizables = ['nombre']
+        campos_a_actualizar = []
+        valores = []
+        
+        for campo in campos_actualizables:
+            if campo in data:
+                campos_a_actualizar.append(f"{campo} = %s")
+                valores.append(data[campo])
+        
+        if not campos_a_actualizar:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "No se proporcionaron campos para actualizar"
+            }), 400
+        
+        valores.append(labor_id)
+        update_query = f"""
+            UPDATE conteo_dim_laborconteo 
+            SET {', '.join(campos_a_actualizar)}
+            WHERE id = %s
+        """
+        
+        cursor.execute(update_query, valores)
+        
+        # Obtener la labor actualizada
+        select_query = """
+            SELECT id, nombre
+            FROM conteo_dim_laborconteo
+            WHERE id = %s
+        """
+        
+        cursor.execute(select_query, (labor_id,))
+        labor_actualizada = cursor.fetchone()
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Labor de conteo actualizada exitosamente",
+            "data": labor_actualizada
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error actualizando labor de conteo {labor_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/labores-conteo/<int:labor_id>', methods=['DELETE'])
+@jwt_required()
+def eliminar_labor_conteo(labor_id):
+    """
+    Eliminar una labor de conteo
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Eliminar labor
+        delete_query = "DELETE FROM conteo_dim_laborconteo WHERE id = %s"
+        cursor.execute(delete_query, (labor_id,))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Labor de conteo eliminada exitosamente"
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error eliminando labor de conteo {labor_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+# =============================================================================
+# LABOR-ESPECIE-ATRIBUTO
+# =============================================================================
+
+@pautas_bp.route('/labor-especie', methods=['GET'])
+@jwt_required()
+def listar_labor_especie():
+    """
+    Listar todas las combinaciones labor-especie
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        query = """
+            SELECT 
+                le.id,
+                le.id_labor,
+                le.id_especie,
+                le.id_estado,
+                l.nombre as nombre_labor,
+                e.nombre as nombre_especie,
+                e.caja_equivalente
+            FROM conteo_pivot_labor_especie le
+            LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
+            LEFT JOIN general_dim_especie e ON le.id_especie = e.id
+            ORDER BY l.nombre, e.nombre
+        """
+        
+        cursor.execute(query)
+        labor_especies = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Combinaciones labor-especie obtenidas exitosamente",
+            "data": {
+                "labor_especies": labor_especies,
+                "total": len(labor_especies)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo labor-especie: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/atributos-especie/<int:especie_id>', methods=['GET'])
+@jwt_required()
+def listar_atributos_especie(especie_id):
+    """
+    Listar atributos disponibles para una especie específica
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        query = """
+            SELECT 
+                ae.id,
+                ae.id_atributo,
+                ae.id_especie,
+                a.nombre as nombre_atributo,
+                e.nombre as nombre_especie
+            FROM conteo_pivot_atributo_especie ae
+            LEFT JOIN conteo_dim_atributocultivo a ON ae.id_atributo = a.id
+            LEFT JOIN general_dim_especie e ON ae.id_especie = e.id
+            WHERE ae.id_especie = %s
+            ORDER BY a.nombre
+        """
+        
+        cursor.execute(query, (especie_id,))
+        atributos = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Atributos de la especie obtenidos exitosamente",
+            "data": {
+                "atributos": atributos,
+                "total": len(atributos)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo atributos de especie {especie_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/tipos-planta', methods=['GET'])
+@jwt_required()
+def listar_tipos_planta():
+    """
+    Listar todos los tipos de planta disponibles
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        query = """
+            SELECT 
+                id,
+                nombre,
+                factor_productivo,
+                id_empresa,
+                descripcion
+            FROM mapeo_dim_tipoplanta
+            ORDER BY nombre
+        """
+        
+        cursor.execute(query)
+        tipos_planta = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Tipos de planta obtenidos exitosamente",
+            "data": {
+                "tipos_planta": tipos_planta,
+                "total": len(tipos_planta)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo tipos de planta: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/tipos-planta-registro', methods=['GET'])
+@jwt_required()
+def listar_tipos_planta_registro():
+    """
+    Listar tipos de planta desde el registro de mapeo
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        query = """
+            SELECT DISTINCT
+                tp.id,
+                tp.nombre,
+                tp.factor_productivo,
+                tp.id_empresa,
+                tp.descripcion,
+                COUNT(r.id) as total_registros
+            FROM mapeo_dim_tipoplanta tp
+            LEFT JOIN mapeo_fact_registro r ON tp.id = r.id_tipoplanta
+            GROUP BY tp.id, tp.nombre, tp.factor_productivo, tp.id_empresa, tp.descripcion
+            ORDER BY tp.nombre
+        """
+        
+        cursor.execute(query)
+        tipos_planta = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Tipos de planta desde registro obtenidos exitosamente",
+            "data": {
+                "tipos_planta": tipos_planta,
+                "total": len(tipos_planta)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo tipos de planta desde registro: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+# =============================================================================
+# GENERACIÓN DE FORMULARIO DINÁMICO
+# =============================================================================
+
+@pautas_bp.route('/formulario/<int:labor_id>/<int:especie_id>', methods=['GET'])
+@jwt_required()
+def generar_formulario_dinamico(labor_id, especie_id):
+    """
+    Generar formulario dinámico basado en labor y especie
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Verificar que la combinación labor-especie existe
+        labor_especie_query = """
+            SELECT 
+                le.id,
+                le.id_labor,
+                le.id_especie,
+                le.id_estado,
+                l.nombre as nombre_labor,
+                e.nombre as nombre_especie
+            FROM conteo_pivot_labor_especie le
+            LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
+            LEFT JOIN general_dim_especie e ON le.id_especie = e.id
+            WHERE le.id_labor = %s AND le.id_especie = %s
+        """
+        
+        cursor.execute(labor_especie_query, (labor_id, especie_id))
+        labor_especie = cursor.fetchone()
+        
+        if not labor_especie:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Combinación labor-especie no encontrada"
+            }), 404
+        
+        # Obtener configuración de pauta para esta combinación
+        configuracion_query = """
+            SELECT 
+                cp.id,
+                cp.id_atributo,
+                cp.id_tipoplanta,
+                a.nombre as nombre_atributo,
+                tp.nombre as nombre_tipo_planta
+            FROM conteo_dim_configpauta cp
+            LEFT JOIN conteo_dim_atributocultivo a ON cp.id_atributo = a.id
+            LEFT JOIN mapeo_dim_tipoplanta tp ON LPAD(cp.id_tipoplanta, 2, '0') = tp.id
+            WHERE cp.id_conteotipo = %s
+            ORDER BY a.nombre
+        """
+        
+        cursor.execute(configuracion_query, (labor_especie['id'],))
+        configuraciones = cursor.fetchall()
+        
+        # Obtener tipos de planta disponibles
+        tipos_planta_query = """
+            SELECT 
+                id,
+                nombre,
+                factor_productivo,
+                id_empresa,
+                descripcion
+            FROM mapeo_dim_tipoplanta
+            ORDER BY nombre
+        """
+        
+        cursor.execute(tipos_planta_query)
+        tipos_planta = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Formulario generado exitosamente",
+            "data": {
+                "labor_especie": labor_especie,
+                "configuraciones": configuraciones,
+                "tipos_planta": tipos_planta,
+                "total_atributos": len(configuraciones)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error generando formulario para labor {labor_id}, especie {especie_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+# =============================================================================
+# GESTIÓN DE PAUTAS (conteo_fact_pauta)
+# =============================================================================
+
+@pautas_bp.route('/pautas', methods=['GET'])
+@jwt_required()
+def listar_pautas():
+    """
+    Listar todas las pautas del usuario autenticado
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        query = """
+            SELECT 
+                p.id,
+                p.id_conteotipo,
+                p.id_usuario,
+                p.id_temporada,
+                p.fecha,
+                p.hora_registro,
+                p.id_cuartel,
+                t.temporada as nombre_temporada,
+                c.nombre as nombre_cuartel,
+                le.id_labor,
+                le.id_especie,
+                l.nombre as nombre_labor,
+                e.nombre as nombre_especie
+            FROM conteo_fact_pauta p
+            LEFT JOIN general_dim_temporada t ON p.id_temporada = t.id
+            LEFT JOIN general_dim_cuartel c ON p.id_cuartel = c.id
+            LEFT JOIN conteo_pivot_labor_especie le ON p.id_conteotipo = le.id
+            LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
+            LEFT JOIN general_dim_especie e ON le.id_especie = e.id
+            WHERE p.id_usuario = %s
+            ORDER BY p.fecha DESC, p.hora_registro DESC
+        """
+        
+        cursor.execute(query, (user_id,))
+        pautas = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Pautas obtenidas exitosamente",
+            "data": {
+                "pautas": pautas,
+                "total": len(pautas)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo pautas: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/pautas', methods=['POST'])
+@jwt_required()
+def crear_pauta():
+    """
+    Crear una nueva pauta
+    """
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        # Validar campos requeridos
+        campos_requeridos = ['id_conteotipo', 'id_temporada', 'id_cuartel']
+        for campo in campos_requeridos:
+            if campo not in data:
+                return jsonify({
+                    "success": False,
+                    "message": f"Campo requerido: {campo}"
+                }), 400
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Insertar nueva pauta
+        insert_query = """
+            INSERT INTO conteo_fact_pauta 
+            (id_conteotipo, id_usuario, id_temporada, fecha, hora_registro, id_cuartel) 
+            VALUES (%s, %s, %s, CURDATE(), CURTIME(), %s)
+        """
+        
+        cursor.execute(insert_query, (
+            data['id_conteotipo'],
+            user_id,
+            data['id_temporada'],
+            data['id_cuartel']
+        ))
+        
+        pauta_id = cursor.lastrowid
+        
+        # Obtener la pauta creada
+        select_query = """
+            SELECT 
+                p.id,
+                p.id_conteotipo,
+                p.id_usuario,
+                p.id_temporada,
+                p.fecha,
+                p.hora_registro,
+                p.id_cuartel,
+                t.temporada as nombre_temporada,
+                c.nombre as nombre_cuartel,
+                le.id_labor,
+                le.id_especie,
+                l.nombre as nombre_labor,
+                e.nombre as nombre_especie
+            FROM conteo_fact_pauta p
+            LEFT JOIN general_dim_temporada t ON p.id_temporada = t.id
+            LEFT JOIN general_dim_cuartel c ON p.id_cuartel = c.id
+            LEFT JOIN conteo_pivot_labor_especie le ON p.id_conteotipo = le.id
+            LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
+            LEFT JOIN general_dim_especie e ON le.id_especie = e.id
+            WHERE p.id = %s
+        """
+        
+        cursor.execute(select_query, (pauta_id,))
+        pauta_creada = cursor.fetchone()
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Pauta creada exitosamente",
+            "data": pauta_creada
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Error creando pauta: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/pautas/<string:pauta_id>', methods=['GET'])
+@jwt_required()
+def obtener_pauta(pauta_id):
+    """
+    Obtener una pauta específica con sus detalles
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Obtener información de la pauta
+        pauta_query = """
+            SELECT 
+                p.id,
+                p.id_conteotipo,
+                p.id_usuario,
+                p.id_temporada,
+                p.fecha,
+                p.hora_registro,
+                p.id_cuartel,
+                t.temporada as nombre_temporada,
+                c.nombre as nombre_cuartel,
+                le.id_labor,
+                le.id_especie,
+                l.nombre as nombre_labor,
+                e.nombre as nombre_especie
+            FROM conteo_fact_pauta p
+            LEFT JOIN general_dim_temporada t ON p.id_temporada = t.id
+            LEFT JOIN general_dim_cuartel c ON p.id_cuartel = c.id
+            LEFT JOIN conteo_pivot_labor_especie le ON p.id_conteotipo = le.id
+            LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
+            LEFT JOIN general_dim_especie e ON le.id_especie = e.id
+            WHERE p.id = %s AND p.id_usuario = %s
+        """
+        
+        cursor.execute(pauta_query, (pauta_id, user_id))
+        pauta = cursor.fetchone()
+        
+        if not pauta:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Pauta no encontrada"
+            }), 404
+        
+        # Obtener detalles de la pauta
+        detalles_query = """
+            SELECT 
+                dp.id,
+                dp.id_pauta,
+                dp.id_atributo,
+                dp.id_tipoplanta,
+                dp.valor_atributo,
+                a.nombre as nombre_atributo,
+                tp.nombre as nombre_tipo_planta
+            FROM conteo_fact_detallepauta dp
+            LEFT JOIN conteo_dim_atributocultivo a ON dp.id_atributo = a.id
+            LEFT JOIN mapeo_dim_tipoplanta tp ON LPAD(dp.id_tipoplanta, 2, '0') = tp.id
+            WHERE dp.id_pauta = %s
+            ORDER BY a.nombre
+        """
+        
+        cursor.execute(detalles_query, (pauta_id,))
+        detalles = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Pauta obtenida exitosamente",
+            "data": {
+                "pauta": pauta,
+                "detalles": detalles,
+                "total_detalles": len(detalles)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo pauta {pauta_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/pautas/<string:pauta_id>', methods=['PUT'])
+@jwt_required()
+def actualizar_pauta(pauta_id):
+    """
+    Actualizar una pauta existente
+    """
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Construir query de actualización dinámicamente
+        campos_actualizables = ['id_conteotipo', 'id_temporada', 'id_cuartel']
+        campos_a_actualizar = []
+        valores = []
+        
+        for campo in campos_actualizables:
+            if campo in data:
+                campos_a_actualizar.append(f"{campo} = %s")
+                valores.append(data[campo])
+        
+        if not campos_a_actualizar:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "No se proporcionaron campos para actualizar"
+            }), 400
+        
+        valores.append(pauta_id)
+        valores.append(user_id)
+        update_query = f"""
+            UPDATE conteo_fact_pauta 
+            SET {', '.join(campos_a_actualizar)}
+            WHERE id = %s AND id_usuario = %s
+        """
+        
+        cursor.execute(update_query, valores)
+        
+        # Obtener la pauta actualizada
+        select_query = """
+            SELECT 
+                p.id,
+                p.id_conteotipo,
+                p.id_usuario,
+                p.id_temporada,
+                p.fecha,
+                p.hora_registro,
+                p.id_cuartel,
+                t.temporada as nombre_temporada,
+                c.nombre as nombre_cuartel,
+                le.id_labor,
+                le.id_especie,
+                l.nombre as nombre_labor,
+                e.nombre as nombre_especie
+            FROM conteo_fact_pauta p
+            LEFT JOIN general_dim_temporada t ON p.id_temporada = t.id
+            LEFT JOIN general_dim_cuartel c ON p.id_cuartel = c.id
+            LEFT JOIN conteo_pivot_labor_especie le ON p.id_conteotipo = le.id
+            LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
+            LEFT JOIN general_dim_especie e ON le.id_especie = e.id
+            WHERE p.id = %s
+        """
+        
+        cursor.execute(select_query, (pauta_id,))
+        pauta_actualizada = cursor.fetchone()
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Pauta actualizada exitosamente",
+            "data": pauta_actualizada
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error actualizando pauta {pauta_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/pautas/<string:pauta_id>', methods=['DELETE'])
+@jwt_required()
+def eliminar_pauta(pauta_id):
+    """
+    Eliminar una pauta y sus detalles
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Primero eliminar los detalles de la pauta
+        delete_detalles_query = "DELETE FROM conteo_fact_detallepauta WHERE id_pauta = %s"
+        cursor.execute(delete_detalles_query, (pauta_id,))
+        
+        # Luego eliminar la pauta
+        delete_pauta_query = "DELETE FROM conteo_fact_pauta WHERE id = %s AND id_usuario = %s"
+        cursor.execute(delete_pauta_query, (pauta_id, user_id))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Pauta y sus detalles eliminados exitosamente"
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error eliminando pauta {pauta_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/pautas-usuario/<string:user_id>', methods=['GET'])
+@jwt_required()
+def listar_pautas_usuario(user_id):
+    """
+    Listar todas las pautas de un usuario específico (para administradores)
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        query = """
+            SELECT 
+                p.id,
+                p.id_conteotipo,
+                p.id_usuario,
+                p.id_temporada,
+                p.fecha,
+                p.hora_registro,
+                p.id_cuartel,
+                t.temporada as nombre_temporada,
+                c.nombre as nombre_cuartel,
+                le.id_labor,
+                le.id_especie,
+                l.nombre as nombre_labor,
+                e.nombre as nombre_especie,
+                u.nombre as nombre_usuario
+            FROM conteo_fact_pauta p
+            LEFT JOIN general_dim_temporada t ON p.id_temporada = t.id
+            LEFT JOIN general_dim_cuartel c ON p.id_cuartel = c.id
+            LEFT JOIN conteo_pivot_labor_especie le ON p.id_conteotipo = le.id
+            LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
+            LEFT JOIN general_dim_especie e ON le.id_especie = e.id
+            LEFT JOIN general_dim_usuario u ON p.id_usuario = u.id
+            WHERE p.id_usuario = %s
+            ORDER BY p.fecha DESC, p.hora_registro DESC
+        """
+        
+        cursor.execute(query, (user_id,))
+        pautas = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Pautas del usuario obtenidas exitosamente",
+            "data": {
+                "pautas": pautas,
+                "total": len(pautas)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo pautas del usuario {user_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/pautas-cuartel/<int:cuartel_id>', methods=['GET'])
+@jwt_required()
+def listar_pautas_cuartel(cuartel_id):
+    """
+    Listar todas las pautas de un cuartel específico
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        query = """
+            SELECT 
+                p.id,
+                p.id_conteotipo,
+                p.id_usuario,
+                p.id_temporada,
+                p.fecha,
+                p.hora_registro,
+                p.id_cuartel,
+                t.temporada as nombre_temporada,
+                c.nombre as nombre_cuartel,
+                le.id_labor,
+                le.id_especie,
+                l.nombre as nombre_labor,
+                e.nombre as nombre_especie,
+                u.nombre as nombre_usuario
+            FROM conteo_fact_pauta p
+            LEFT JOIN general_dim_temporada t ON p.id_temporada = t.id
+            LEFT JOIN general_dim_cuartel c ON p.id_cuartel = c.id
+            LEFT JOIN conteo_pivot_labor_especie le ON p.id_conteotipo = le.id
+            LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
+            LEFT JOIN general_dim_especie e ON le.id_especie = e.id
+            LEFT JOIN general_dim_usuario u ON p.id_usuario = u.id
+            WHERE p.id_cuartel = %s
+            ORDER BY p.fecha DESC, p.hora_registro DESC
+        """
+        
+        cursor.execute(query, (cuartel_id,))
+        pautas = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Pautas del cuartel obtenidas exitosamente",
+            "data": {
+                "pautas": pautas,
+                "total": len(pautas)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo pautas del cuartel {cuartel_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/pautas-temporada/<int:temporada_id>', methods=['GET'])
+@jwt_required()
+def listar_pautas_temporada(temporada_id):
+    """
+    Listar todas las pautas de una temporada específica
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        query = """
+            SELECT 
+                p.id,
+                p.id_conteotipo,
+                p.id_usuario,
+                p.id_temporada,
+                p.fecha,
+                p.hora_registro,
+                p.id_cuartel,
+                t.temporada as nombre_temporada,
+                c.nombre as nombre_cuartel,
+                le.id_labor,
+                le.id_especie,
+                l.nombre as nombre_labor,
+                e.nombre as nombre_especie,
+                u.nombre as nombre_usuario
+            FROM conteo_fact_pauta p
+            LEFT JOIN general_dim_temporada t ON p.id_temporada = t.id
+            LEFT JOIN general_dim_cuartel c ON p.id_cuartel = c.id
+            LEFT JOIN conteo_pivot_labor_especie le ON p.id_conteotipo = le.id
+            LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
+            LEFT JOIN general_dim_especie e ON le.id_especie = e.id
+            LEFT JOIN general_dim_usuario u ON p.id_usuario = u.id
+            WHERE p.id_temporada = %s
+            ORDER BY p.fecha DESC, p.hora_registro DESC
+        """
+        
+        cursor.execute(query, (temporada_id,))
+        pautas = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Pautas de la temporada obtenidas exitosamente",
+            "data": {
+                "pautas": pautas,
+                "total": len(pautas)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo pautas de la temporada {temporada_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+# =============================================================================
+# GESTIÓN DE DETALLES DE PAUTA (conteo_fact_detallepauta)
+# =============================================================================
+
+@pautas_bp.route('/pautas/<string:pauta_id>/detalles', methods=['GET'])
+@jwt_required()
+def listar_detalles_pauta(pauta_id):
+    """
+    Listar todos los detalles de una pauta específica
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Verificar que la pauta pertenece al usuario
+        verificar_pauta_query = """
+            SELECT id FROM conteo_fact_pauta 
+            WHERE id = %s AND id_usuario = %s
+        """
+        cursor.execute(verificar_pauta_query, (pauta_id, user_id))
+        pauta_existe = cursor.fetchone()
+        
+        if not pauta_existe:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Pauta no encontrada o sin permisos"
+            }), 404
+        
+        # Obtener detalles de la pauta
+        detalles_query = """
+            SELECT 
+                dp.id,
+                dp.id_pauta,
+                dp.id_atributo,
+                dp.id_tipoplanta,
+                dp.valor_atributo,
+                a.nombre as nombre_atributo,
+                tp.nombre as nombre_tipo_planta
+            FROM conteo_fact_detallepauta dp
+            LEFT JOIN conteo_dim_atributocultivo a ON dp.id_atributo = a.id
+            LEFT JOIN mapeo_dim_tipoplanta tp ON LPAD(dp.id_tipoplanta, 2, '0') = tp.id
+            WHERE dp.id_pauta = %s
+            ORDER BY a.nombre
+        """
+        
+        cursor.execute(detalles_query, (pauta_id,))
+        detalles = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Detalles de pauta obtenidos exitosamente",
+            "data": {
+                "detalles": detalles,
+                "total": len(detalles)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo detalles de pauta {pauta_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/pautas/<string:pauta_id>/detalles', methods=['POST'])
+@jwt_required()
+def crear_detalle_pauta(pauta_id):
+    """
+    Crear un nuevo detalle de pauta
+    """
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        # Validar campos requeridos
+        campos_requeridos = ['id_atributo', 'valor_atributo']
+        for campo in campos_requeridos:
+            if campo not in data:
+                return jsonify({
+                    "success": False,
+                    "message": f"Campo requerido: {campo}"
+                }), 400
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Verificar que la pauta pertenece al usuario
+        verificar_pauta_query = """
+            SELECT id FROM conteo_fact_pauta 
+            WHERE id = %s AND id_usuario = %s
+        """
+        cursor.execute(verificar_pauta_query, (pauta_id, user_id))
+        pauta_existe = cursor.fetchone()
+        
+        if not pauta_existe:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Pauta no encontrada o sin permisos"
+            }), 404
+        
+        # Insertar nuevo detalle
+        insert_query = """
+            INSERT INTO conteo_fact_detallepauta 
+            (id_pauta, id_atributo, id_tipoplanta, valor_atributo) 
+            VALUES (%s, %s, %s, %s)
+        """
+        
+        cursor.execute(insert_query, (
+            pauta_id,
+            data['id_atributo'],
+            data.get('id_tipoplanta'),  # Opcional
+            data['valor_atributo']
+        ))
+        
+        detalle_id = cursor.lastrowid
+        
+        # Obtener el detalle creado
+        select_query = """
+            SELECT 
+                dp.id,
+                dp.id_pauta,
+                dp.id_atributo,
+                dp.id_tipoplanta,
+                dp.valor_atributo,
+                a.nombre as nombre_atributo,
+                tp.nombre as nombre_tipo_planta
+            FROM conteo_fact_detallepauta dp
+            LEFT JOIN conteo_dim_atributocultivo a ON dp.id_atributo = a.id
+            LEFT JOIN mapeo_dim_tipoplanta tp ON LPAD(dp.id_tipoplanta, 2, '0') = tp.id
+            WHERE dp.id = %s
+        """
+        
+        cursor.execute(select_query, (detalle_id,))
+        detalle_creado = cursor.fetchone()
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Detalle de pauta creado exitosamente",
+            "data": detalle_creado
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Error creando detalle de pauta: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/pautas/<string:pauta_id>/detalles/<int:detalle_id>', methods=['PUT'])
+@jwt_required()
+def actualizar_detalle_pauta(pauta_id, detalle_id):
+    """
+    Actualizar un detalle de pauta existente
+    """
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Verificar que la pauta pertenece al usuario
+        verificar_pauta_query = """
+            SELECT id FROM conteo_fact_pauta 
+            WHERE id = %s AND id_usuario = %s
+        """
+        cursor.execute(verificar_pauta_query, (pauta_id, user_id))
+        pauta_existe = cursor.fetchone()
+        
+        if not pauta_existe:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Pauta no encontrada o sin permisos"
+            }), 404
+        
+        # Construir query de actualización dinámicamente
+        campos_actualizables = ['id_atributo', 'id_tipoplanta', 'valor_atributo']
+        campos_a_actualizar = []
+        valores = []
+        
+        for campo in campos_actualizables:
+            if campo in data:
+                campos_a_actualizar.append(f"{campo} = %s")
+                valores.append(data[campo])
+        
+        if not campos_a_actualizar:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "No se proporcionaron campos para actualizar"
+            }), 400
+        
+        valores.append(detalle_id)
+        valores.append(pauta_id)
+        update_query = f"""
+            UPDATE conteo_fact_detallepauta 
+            SET {', '.join(campos_a_actualizar)}
+            WHERE id = %s AND id_pauta = %s
+        """
+        
+        cursor.execute(update_query, valores)
+        
+        # Obtener el detalle actualizado
+        select_query = """
+            SELECT 
+                dp.id,
+                dp.id_pauta,
+                dp.id_atributo,
+                dp.id_tipoplanta,
+                dp.valor_atributo,
+                a.nombre as nombre_atributo,
+                tp.nombre as nombre_tipo_planta
+            FROM conteo_fact_detallepauta dp
+            LEFT JOIN conteo_dim_atributocultivo a ON dp.id_atributo = a.id
+            LEFT JOIN mapeo_dim_tipoplanta tp ON LPAD(dp.id_tipoplanta, 2, '0') = tp.id
+            WHERE dp.id = %s
+        """
+        
+        cursor.execute(select_query, (detalle_id,))
+        detalle_actualizado = cursor.fetchone()
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Detalle de pauta actualizado exitosamente",
+            "data": detalle_actualizado
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error actualizando detalle de pauta {detalle_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/pautas/<string:pauta_id>/detalles/<int:detalle_id>', methods=['DELETE'])
+@jwt_required()
+def eliminar_detalle_pauta(pauta_id, detalle_id):
+    """
+    Eliminar un detalle de pauta
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Verificar que la pauta pertenece al usuario
+        verificar_pauta_query = """
+            SELECT id FROM conteo_fact_pauta 
+            WHERE id = %s AND id_usuario = %s
+        """
+        cursor.execute(verificar_pauta_query, (pauta_id, user_id))
+        pauta_existe = cursor.fetchone()
+        
+        if not pauta_existe:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Pauta no encontrada o sin permisos"
+            }), 404
+        
+        # Eliminar detalle
+        delete_query = """
+            DELETE FROM conteo_fact_detallepauta 
+            WHERE id = %s AND id_pauta = %s
+        """
+        cursor.execute(delete_query, (detalle_id, pauta_id))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Detalle de pauta eliminado exitosamente"
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error eliminando detalle de pauta {detalle_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@pautas_bp.route('/pautas/<string:pauta_id>/detalles-masivo', methods=['POST'])
+@jwt_required()
+def crear_detalles_masivo(pauta_id):
+    """
+    Crear múltiples detalles de pauta de una vez
+    """
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        # Validar que se proporcionaron detalles
+        if 'detalles' not in data or not isinstance(data['detalles'], list):
+            return jsonify({
+                "success": False,
+                "message": "Campo requerido: detalles (array)"
+            }), 400
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Verificar que la pauta pertenece al usuario
+        verificar_pauta_query = """
+            SELECT id FROM conteo_fact_pauta 
+            WHERE id = %s AND id_usuario = %s
+        """
+        cursor.execute(verificar_pauta_query, (pauta_id, user_id))
+        pauta_existe = cursor.fetchone()
+        
+        if not pauta_existe:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Pauta no encontrada o sin permisos"
+            }), 404
+        
+        detalles_creados = []
+        
+        # Insertar cada detalle
+        for detalle in data['detalles']:
+            # Validar campos requeridos para cada detalle
+            if 'id_atributo' not in detalle or 'valor_atributo' not in detalle:
+                continue  # Saltar detalles inválidos
+            
+            insert_query = """
+                INSERT INTO conteo_fact_detallepauta 
+                (id_pauta, id_atributo, id_tipoplanta, valor_atributo) 
+                VALUES (%s, %s, %s, %s)
+            """
+            
+            cursor.execute(insert_query, (
+                pauta_id,
+                detalle['id_atributo'],
+                detalle.get('id_tipoplanta'),  # Opcional
+                detalle['valor_atributo']
+            ))
+            
+            detalle_id = cursor.lastrowid
+            
+            # Obtener el detalle creado
+            select_query = """
+                SELECT 
+                    dp.id,
+                    dp.id_pauta,
+                    dp.id_atributo,
+                    dp.id_tipoplanta,
+                    dp.valor_atributo,
+                    a.nombre as nombre_atributo,
+                    tp.nombre as nombre_tipo_planta
+                FROM conteo_fact_detallepauta dp
+                LEFT JOIN conteo_dim_atributocultivo a ON dp.id_atributo = a.id
+                LEFT JOIN mapeo_dim_tipoplanta tp ON LPAD(dp.id_tipoplanta, 2, '0') = tp.id
+                WHERE dp.id = %s
+            """
+            
+            cursor.execute(select_query, (detalle_id,))
+            detalle_creado = cursor.fetchone()
+            detalles_creados.append(detalle_creado)
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": f"{len(detalles_creados)} detalles de pauta creados exitosamente",
+            "data": {
+                "detalles": detalles_creados,
+                "total_creados": len(detalles_creados)
+            }
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Error creando detalles masivos de pauta: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
