@@ -833,7 +833,6 @@ def obtener_dashboard_estimaciones():
                 SELECT DISTINCT
                     c.id,
                     c.nombre,
-                    c.descripcion,
                     ce.nombre as nombre_ceco,
                     s.nombre as nombre_sucursal,
                     CASE WHEN c.id_estado = 1 THEN 'ACTIVO' ELSE 'INACTIVO' END as estado
@@ -855,7 +854,7 @@ def obtener_dashboard_estimaciones():
                 cuartel_data = {
                     "id": cuartel['id'],
                     "nombre": cuartel['nombre'],
-                    "descripcion": cuartel['descripcion'] or "",
+                    "descripcion": "",  # Campo no disponible en la tabla
                     "nombre_ceco": cuartel['nombre_ceco'],
                     "nombre_sucursal": cuartel['nombre_sucursal'],
                     "estado": cuartel['estado'],
