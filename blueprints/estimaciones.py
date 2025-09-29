@@ -796,24 +796,12 @@ def obtener_dashboard_estimaciones():
                 "error": "TABLAS_NO_EXISTEN"
             }), 404
         
-        # Obtener cuarteles agrupados por especie de la sucursal activa del usuario
-        cuarteles_por_especie_query = """
+        # Obtener especies con sus cuarteles de la sucursal activa del usuario
+        especies_query = """
             SELECT DISTINCT
                 e.id as especie_id,
                 e.nombre as especie_nombre,
-                e.caja_equivalente,
-                COUNT(DISTINCT c.id) as total_cuarteles,
-                GROUP_CONCAT(
-                    CONCAT(
-                        '{"id":', c.id, 
-                        ',"nombre":"', c.nombre, '",',
-                        '"ceco":"', ce.nombre, '",',
-                        '"sucursal":"', s.nombre, '"',
-                        '}'
-                    ) 
-                    ORDER BY c.nombre 
-                    SEPARATOR ','
-                ) as cuarteles_json
+                e.caja_equivalente
             FROM general_dim_especie e
             INNER JOIN general_dim_variedad v ON v.id_especie = e.id
             INNER JOIN general_dim_cuartel c ON c.id_variedad = v.id
@@ -821,15 +809,14 @@ def obtener_dashboard_estimaciones():
             INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
             INNER JOIN usuario_pivot_sucursal_usuario usu ON s.id = usu.id_sucursal
             WHERE usu.id_usuario = %s
-            GROUP BY e.id, e.nombre, e.caja_equivalente
             ORDER BY e.nombre
         """
         
-        cursor.execute(cuarteles_por_especie_query, (user_id,))
-        especies_con_cuarteles = cursor.fetchall()
+        cursor.execute(especies_query, (user_id,))
+        especies = cursor.fetchall()
         
         # Si no hay especies con cuarteles, retornar mensaje claro
-        if not especies_con_cuarteles:
+        if not especies:
             cursor.close()
             conn.close()
             return jsonify({
@@ -838,57 +825,49 @@ def obtener_dashboard_estimaciones():
                 "error": "SIN_DATOS_DISPONIBLES"
             }), 404
         
-        # Procesar los cuarteles JSON para cada especie
+        # Procesar cada especie y obtener sus cuarteles
         especies_agrupadas = []
-        for especie in especies_con_cuarteles:
-            cuarteles_data = []
-            if especie['cuarteles_json']:
-                # Parsear el JSON de cuarteles
-                cuarteles_str = especie['cuarteles_json']
-                cuarteles_list = cuarteles_str.split(',')
-                
-                for cuartel_str in cuarteles_list:
-                    try:
-                        # Limpiar y parsear cada cuartel
-                        cuartel_str = cuartel_str.strip()
-                        if cuartel_str.startswith('{"id":'):
-                            # Extraer datos del cuartel
-                            import re
-                            id_match = re.search(r'"id":(\d+)', cuartel_str)
-                            nombre_match = re.search(r'"nombre":"([^"]*)"', cuartel_str)
-                            ceco_match = re.search(r'"ceco":"([^"]*)"', cuartel_str)
-                            sucursal_match = re.search(r'"sucursal":"([^"]*)"', cuartel_str)
-                            
-                            if id_match and nombre_match:
-                                cuartel_data = {
-                                    "id": int(id_match.group(1)),
-                                    "nombre": nombre_match.group(1),
-                                    "nombre_ceco": ceco_match.group(1) if ceco_match else "",
-                                    "nombre_sucursal": sucursal_match.group(1) if sucursal_match else "",
-                                    "total_estimaciones": 0,
-                                    "total_cajas": 0,
-                                    "total_kg_embalaje": 0,
-                                    "total_kg_industria": 0,
-                                    "ultima_estimacion": None
-                                }
-                                cuarteles_data.append(cuartel_data)
-                    except Exception as parse_error:
-                        logger.warning(f"Error parseando cuartel: {parse_error}")
-                        continue
+        for especie in especies:
+            # Obtener cuarteles para esta especie
+            cuarteles_query = """
+                SELECT DISTINCT
+                    c.id,
+                    c.nombre,
+                    c.descripcion,
+                    ce.nombre as nombre_ceco,
+                    s.nombre as nombre_sucursal,
+                    CASE WHEN c.id_estado = 1 THEN 'ACTIVO' ELSE 'INACTIVO' END as estado
+                FROM general_dim_cuartel c
+                INNER JOIN general_dim_variedad v ON c.id_variedad = v.id
+                INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
+                INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
+                INNER JOIN usuario_pivot_sucursal_usuario usu ON s.id = usu.id_sucursal
+                WHERE v.id_especie = %s AND usu.id_usuario = %s
+                ORDER BY c.nombre
+            """
             
-            especies_agrupadas.append({
-                "especie_id": especie['especie_id'],
-                "especie_nombre": especie['especie_nombre'],
-                "caja_equivalente": especie['caja_equivalente'],
-                "total_cuarteles": especie['total_cuarteles'],
-                "cuarteles": cuarteles_data
-            })
-        
-        # Si las tablas de estimaciones existen, agregar estadísticas
-        if tabla_estimaciones_existe and tabla_tipos_existe:
-            # Agregar estadísticas de estimaciones a cada cuartel
-            for especie in especies_agrupadas:
-                for cuartel in especie['cuarteles']:
+            cursor.execute(cuarteles_query, (especie['especie_id'], user_id))
+            cuarteles = cursor.fetchall()
+            
+            # Agregar estadísticas de estimaciones a cada cuartel si las tablas existen
+            cuarteles_con_stats = []
+            for cuartel in cuarteles:
+                cuartel_data = {
+                    "id": cuartel['id'],
+                    "nombre": cuartel['nombre'],
+                    "descripcion": cuartel['descripcion'] or "",
+                    "nombre_ceco": cuartel['nombre_ceco'],
+                    "nombre_sucursal": cuartel['nombre_sucursal'],
+                    "estado": cuartel['estado'],
+                    "total_estimaciones": 0,
+                    "total_cajas": 0,
+                    "total_kg_embalaje": 0,
+                    "total_kg_industria": 0,
+                    "ultima_estimacion": None
+                }
+                
+                # Si las tablas de estimaciones existen, agregar estadísticas
+                if tabla_estimaciones_existe and tabla_tipos_existe:
                     estadisticas_query = """
                         SELECT 
                             COUNT(*) as total_estimaciones,
@@ -904,12 +883,24 @@ def obtener_dashboard_estimaciones():
                     stats = cursor.fetchone()
                     
                     if stats:
-                        cuartel['total_estimaciones'] = stats['total_estimaciones']
-                        cuartel['total_cajas'] = stats['total_cajas']
-                        cuartel['total_kg_embalaje'] = stats['total_kg_embalaje']
-                        cuartel['total_kg_industria'] = stats['total_kg_industria']
-                        cuartel['ultima_estimacion'] = stats['ultima_estimacion']
+                        cuartel_data['total_estimaciones'] = stats['total_estimaciones']
+                        cuartel_data['total_cajas'] = stats['total_cajas']
+                        cuartel_data['total_kg_embalaje'] = stats['total_kg_embalaje']
+                        cuartel_data['total_kg_industria'] = stats['total_kg_industria']
+                        cuartel_data['ultima_estimacion'] = stats['ultima_estimacion']
+                
+                cuarteles_con_stats.append(cuartel_data)
             
+            especies_agrupadas.append({
+                "especie_id": especie['especie_id'],
+                "especie_nombre": especie['especie_nombre'],
+                "caja_equivalente": especie['caja_equivalente'],
+                "total_cuarteles": len(cuarteles_con_stats),
+                "cuarteles": cuarteles_con_stats
+            })
+        
+        # Obtener tipos de estimación y totales si las tablas existen
+        if tabla_estimaciones_existe and tabla_tipos_existe:
             # Obtener tipos de estimación
             tipos_query = """
                 SELECT 
