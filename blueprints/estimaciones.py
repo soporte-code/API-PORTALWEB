@@ -958,6 +958,615 @@ def obtener_dashboard_estimaciones():
             "error": str(e)
         }), 500
 
+# ============================================================================
+# VISTA DETALLADA DE CUARTELES
+# ============================================================================
+
+@estimaciones_bp.route('/cuartel/<int:cuartel_id>/informacion-general', methods=['GET'])
+@jwt_required()
+def obtener_informacion_general_cuartel(cuartel_id):
+    """
+    Obtener información general detallada de un cuartel específico
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Verificar que el cuartel pertenece a la sucursal del usuario
+        verificar_cuartel_query = """
+            SELECT 1
+            FROM general_dim_cuartel c
+            INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
+            INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
+            INNER JOIN usuario_pivot_sucursal_usuario usu ON s.id = usu.id_sucursal
+            WHERE c.id = %s AND usu.id_usuario = %s
+        """
+        
+        cursor.execute(verificar_cuartel_query, (cuartel_id, user_id))
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Cuartel no encontrado o sin acceso"
+            }), 404
+        
+        # Obtener información detallada del cuartel
+        info_query = """
+            SELECT 
+                c.id,
+                c.nombre,
+                v.nombre as variedad,
+                c.superficie as superficie_productiva,
+                c.ano_plantacion as año_plantacion,
+                c.plantas_ha_teoricas,
+                c.id_portainjerto as portainjerto,
+                CASE 
+                    WHEN c.id_estadoproductivo = 1 THEN 'Productivo'
+                    WHEN c.id_estadoproductivo = 2 THEN 'En Desarrollo'
+                    WHEN c.id_estadoproductivo = 3 THEN 'No Productivo'
+                    ELSE 'Desconocido'
+                END as estado_productivo,
+                c.subdivisionesplanta as numero_brazos_ejes,
+                ce.nombre as nombre_ceco,
+                s.nombre as nombre_sucursal
+            FROM general_dim_cuartel c
+            INNER JOIN general_dim_variedad v ON c.id_variedad = v.id
+            INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
+            INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
+            WHERE c.id = %s
+        """
+        
+        cursor.execute(info_query, (cuartel_id,))
+        cuartel_info = cursor.fetchone()
+        
+        cursor.close()
+        conn.close()
+        
+        if not cuartel_info:
+            return jsonify({
+                "success": False,
+                "message": "Información del cuartel no encontrada"
+            }), 404
+        
+        return jsonify({
+            "success": True,
+            "message": "Información general del cuartel obtenida exitosamente",
+            "data": {
+                "cuartel": cuartel_info
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo información general del cuartel {cuartel_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@estimaciones_bp.route('/cuartel/<int:cuartel_id>/estimaciones', methods=['GET'])
+@jwt_required()
+def obtener_estimaciones_cuartel_detalle(cuartel_id):
+    """
+    Obtener estimaciones detalladas de un cuartel específico
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Verificar que el cuartel pertenece a la sucursal del usuario
+        verificar_cuartel_query = """
+            SELECT 1
+            FROM general_dim_cuartel c
+            INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
+            INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
+            INNER JOIN usuario_pivot_sucursal_usuario usu ON s.id = usu.id_sucursal
+            WHERE c.id = %s AND usu.id_usuario = %s
+        """
+        
+        cursor.execute(verificar_cuartel_query, (cuartel_id, user_id))
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Cuartel no encontrado o sin acceso"
+            }), 404
+        
+        # Verificar si la tabla de estimaciones existe
+        cursor.execute("SHOW TABLES LIKE 'estimacion_fact_registroadministradores'")
+        tabla_existe = cursor.fetchone()
+        
+        if not tabla_existe:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": True,
+                "message": "Tabla de estimaciones no existe aún",
+                "data": {
+                    "estimaciones": [],
+                    "total": 0
+                }
+            }), 200
+        
+        # Obtener estimaciones del cuartel
+        estimaciones_query = """
+            SELECT 
+                e.id,
+                t.nombre as tipo_estimacion,
+                e.embalaje_cajas as estimacion_cajas_ha,
+                e.embalaje_cajas as estimacion,
+                DATE(e.hora_registro) as fecha,
+                u.nombre as usuario
+            FROM estimacion_fact_registroadministradores e
+            LEFT JOIN estimacion_dim_tipo t ON e.id_tipoestimacion = t.id
+            LEFT JOIN general_dim_usuario u ON e.id_usuario = u.id
+            WHERE e.id_cuartel = %s AND e.id_usuario = %s
+            ORDER BY e.hora_registro DESC
+            LIMIT 50
+        """
+        
+        cursor.execute(estimaciones_query, (cuartel_id, user_id))
+        estimaciones = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Estimaciones del cuartel obtenidas exitosamente",
+            "data": {
+                "estimaciones": estimaciones,
+                "total": len(estimaciones)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo estimaciones del cuartel {cuartel_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@estimaciones_bp.route('/cuartel/<int:cuartel_id>/pautas', methods=['GET'])
+@jwt_required()
+def obtener_pautas_cuartel(cuartel_id):
+    """
+    Obtener pautas de un cuartel específico
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Verificar que el cuartel pertenece a la sucursal del usuario
+        verificar_cuartel_query = """
+            SELECT 1
+            FROM general_dim_cuartel c
+            INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
+            INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
+            INNER JOIN usuario_pivot_sucursal_usuario usu ON s.id = usu.id_sucursal
+            WHERE c.id = %s AND usu.id_usuario = %s
+        """
+        
+        cursor.execute(verificar_cuartel_query, (cuartel_id, user_id))
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Cuartel no encontrado o sin acceso"
+            }), 404
+        
+        # Verificar si la tabla de pautas existe
+        cursor.execute("SHOW TABLES LIKE 'conteo_fact_pauta'")
+        tabla_existe = cursor.fetchone()
+        
+        if not tabla_existe:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": True,
+                "message": "Tabla de pautas no existe aún",
+                "data": {
+                    "pautas": [],
+                    "total": 0
+                }
+            }), 200
+        
+        # Obtener pautas del cuartel
+        pautas_query = """
+            SELECT 
+                p.id,
+                DATE(p.fecha) as fecha_inicio,
+                l.nombre as labor,
+                CASE 
+                    WHEN p.id_estado = 1 THEN 'Completada'
+                    WHEN p.id_estado = 0 THEN 'Pendiente'
+                    ELSE 'Desconocida'
+                END as estado,
+                u.nombre as usuario
+            FROM conteo_fact_pauta p
+            LEFT JOIN conteo_dim_laborconteo l ON p.id_labor = l.id
+            LEFT JOIN general_dim_usuario u ON p.id_usuario = u.id
+            WHERE p.id_cuartel = %s AND p.id_usuario = %s
+            ORDER BY p.fecha DESC
+            LIMIT 50
+        """
+        
+        cursor.execute(pautas_query, (cuartel_id, user_id))
+        pautas = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Pautas del cuartel obtenidas exitosamente",
+            "data": {
+                "pautas": pautas,
+                "total": len(pautas)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo pautas del cuartel {cuartel_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@estimaciones_bp.route('/cuartel/<int:cuartel_id>/rendimiento-packing', methods=['GET'])
+@jwt_required()
+def obtener_rendimiento_packing_cuartel(cuartel_id):
+    """
+    Obtener rendimiento packing de un cuartel específico
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Verificar que el cuartel pertenece a la sucursal del usuario
+        verificar_cuartel_query = """
+            SELECT 1
+            FROM general_dim_cuartel c
+            INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
+            INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
+            INNER JOIN usuario_pivot_sucursal_usuario usu ON s.id = usu.id_sucursal
+            WHERE c.id = %s AND usu.id_usuario = %s
+        """
+        
+        cursor.execute(verificar_cuartel_query, (cuartel_id, user_id))
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Cuartel no encontrado o sin acceso"
+            }), 404
+        
+        # Verificar si la tabla de rendimiento existe
+        cursor.execute("SHOW TABLES LIKE 'estimacion_fact_rendimientocuartel'")
+        tabla_existe = cursor.fetchone()
+        
+        if not tabla_existe:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": True,
+                "message": "Tabla de rendimiento packing no existe aún",
+                "data": {
+                    "rendimientos": [],
+                    "total": 0
+                }
+            }), 200
+        
+        # Obtener rendimientos del cuartel
+        rendimientos_query = """
+            SELECT 
+                r.id,
+                r.rendimiento,
+                DATE(r.fecha) as fecha,
+                u.nombre as usuario
+            FROM estimacion_fact_rendimientocuartel r
+            LEFT JOIN general_dim_usuario u ON r.id_usuario = u.id
+            WHERE r.id_cuartel = %s AND r.id_usuario = %s
+            ORDER BY r.fecha DESC
+            LIMIT 50
+        """
+        
+        cursor.execute(rendimientos_query, (cuartel_id, user_id))
+        rendimientos = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Rendimiento packing del cuartel obtenido exitosamente",
+            "data": {
+                "rendimientos": rendimientos,
+                "total": len(rendimientos)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo rendimiento packing del cuartel {cuartel_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@estimaciones_bp.route('/cuartel/<int:cuartel_id>/mapeos', methods=['GET'])
+@jwt_required()
+def obtener_mapeos_cuartel(cuartel_id):
+    """
+    Obtener mapeos de un cuartel específico
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Verificar que el cuartel pertenece a la sucursal del usuario
+        verificar_cuartel_query = """
+            SELECT 1
+            FROM general_dim_cuartel c
+            INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
+            INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
+            INNER JOIN usuario_pivot_sucursal_usuario usu ON s.id = usu.id_sucursal
+            WHERE c.id = %s AND usu.id_usuario = %s
+        """
+        
+        cursor.execute(verificar_cuartel_query, (cuartel_id, user_id))
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Cuartel no encontrado o sin acceso"
+            }), 404
+        
+        # Verificar si la tabla de mapeo existe
+        cursor.execute("SHOW TABLES LIKE 'mapeo_fact_registromapeo'")
+        tabla_existe = cursor.fetchone()
+        
+        if not tabla_existe:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": True,
+                "message": "Tabla de mapeos no existe aún",
+                "data": {
+                    "mapeos": [],
+                    "total": 0
+                }
+            }), 200
+        
+        # Obtener mapeos del cuartel
+        mapeos_query = """
+            SELECT 
+                m.id,
+                DATE(m.fecha) as fecha,
+                m.plantas_7,
+                m.plantas_5,
+                m.plantas_3,
+                u.nombre as usuario
+            FROM mapeo_fact_registromapeo m
+            LEFT JOIN general_dim_usuario u ON m.id_usuario = u.id
+            WHERE m.id_cuartel = %s AND m.id_usuario = %s
+            ORDER BY m.fecha DESC
+            LIMIT 50
+        """
+        
+        cursor.execute(mapeos_query, (cuartel_id, user_id))
+        mapeos = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Mapeos del cuartel obtenidos exitosamente",
+            "data": {
+                "mapeos": mapeos,
+                "total": len(mapeos)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo mapeos del cuartel {cuartel_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@estimaciones_bp.route('/cuartel/<int:cuartel_id>/frutos-ramilla-historico', methods=['GET'])
+@jwt_required()
+def obtener_frutos_ramilla_historico_cuartel(cuartel_id):
+    """
+    Obtener histórico de frutos/ramilla de un cuartel específico
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Verificar que el cuartel pertenece a la sucursal del usuario
+        verificar_cuartel_query = """
+            SELECT 1
+            FROM general_dim_cuartel c
+            INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
+            INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
+            INNER JOIN usuario_pivot_sucursal_usuario usu ON s.id = usu.id_sucursal
+            WHERE c.id = %s AND usu.id_usuario = %s
+        """
+        
+        cursor.execute(verificar_cuartel_query, (cuartel_id, user_id))
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Cuartel no encontrado o sin acceso"
+            }), 404
+        
+        # Verificar si la tabla de peso racimo histórico existe
+        cursor.execute("SHOW TABLES LIKE 'produccion_fact_pesoracimohistorico'")
+        tabla_existe = cursor.fetchone()
+        
+        if not tabla_existe:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": True,
+                "message": "Tabla de frutos/ramilla histórico no existe aún",
+                "data": {
+                    "frutos_ramilla": [],
+                    "total": 0
+                }
+            }), 200
+        
+        # Obtener histórico de frutos/ramilla del cuartel
+        frutos_query = """
+            SELECT 
+                p.id,
+                p.peso_racimo as frutos_ramilla,
+                DATE(p.fecha) as fecha,
+                u.nombre as usuario
+            FROM produccion_fact_pesoracimohistorico p
+            LEFT JOIN general_dim_usuario u ON p.id_usuario = u.id
+            WHERE p.id_cuartel = %s AND p.id_usuario = %s
+            ORDER BY p.fecha DESC
+            LIMIT 50
+        """
+        
+        cursor.execute(frutos_query, (cuartel_id, user_id))
+        frutos_ramilla = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Histórico de frutos/ramilla del cuartel obtenido exitosamente",
+            "data": {
+                "frutos_ramilla": frutos_ramilla,
+                "total": len(frutos_ramilla)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo histórico de frutos/ramilla del cuartel {cuartel_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@estimaciones_bp.route('/cuartel/<int:cuartel_id>/calibres-historicos', methods=['GET'])
+@jwt_required()
+def obtener_calibres_historicos_cuartel(cuartel_id):
+    """
+    Obtener calibres históricos de un cuartel específico
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Verificar que el cuartel pertenece a la sucursal del usuario
+        verificar_cuartel_query = """
+            SELECT 1
+            FROM general_dim_cuartel c
+            INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
+            INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
+            INNER JOIN usuario_pivot_sucursal_usuario usu ON s.id = usu.id_sucursal
+            WHERE c.id = %s AND usu.id_usuario = %s
+        """
+        
+        cursor.execute(verificar_cuartel_query, (cuartel_id, user_id))
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Cuartel no encontrado o sin acceso"
+            }), 404
+        
+        # Verificar si las tablas de calibres existen
+        cursor.execute("SHOW TABLES LIKE 'produccion_dim_calibretipo'")
+        tabla_tipo_existe = cursor.fetchone()
+        
+        cursor.execute("SHOW TABLES LIKE 'produccion_dim_calibrevalor'")
+        tabla_valor_existe = cursor.fetchone()
+        
+        if not tabla_tipo_existe or not tabla_valor_existe:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": True,
+                "message": "Tablas de calibres no existen aún",
+                "data": {
+                    "calibres": [],
+                    "total": 0
+                }
+            }), 200
+        
+        # Obtener calibres históricos del cuartel
+        calibres_query = """
+            SELECT 
+                cv.id,
+                DATE(cv.fecha) as fecha,
+                CONCAT(ct.nombre, ' ', cv.valor) as calibre,
+                cv.cantidad,
+                u.nombre as usuario
+            FROM produccion_dim_calibrevalor cv
+            LEFT JOIN produccion_dim_calibretipo ct ON cv.id_calibretipo = ct.id
+            LEFT JOIN general_dim_usuario u ON cv.id_usuario = u.id
+            WHERE cv.id_cuartel = %s AND cv.id_usuario = %s
+            ORDER BY cv.fecha DESC, ct.nombre, cv.valor
+            LIMIT 50
+        """
+        
+        cursor.execute(calibres_query, (cuartel_id, user_id))
+        calibres = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Calibres históricos del cuartel obtenidos exitosamente",
+            "data": {
+                "calibres": calibres,
+                "total": len(calibres)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo calibres históricos del cuartel {cuartel_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
 @estimaciones_bp.route('/crear-masivo', methods=['POST'])
 @jwt_required()
 def crear_estimaciones_masivo():
