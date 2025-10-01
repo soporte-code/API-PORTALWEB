@@ -9,6 +9,20 @@ logger = logging.getLogger(__name__)
 # Crear blueprint para estimaciones
 estimaciones_bp = Blueprint('estimaciones', __name__)
 
+# Utilidades locales para compatibilidad de esquemas
+def _column_exists(cursor, table_name: str, column_name: str) -> bool:
+    try:
+        cursor.execute("SHOW COLUMNS FROM %s LIKE %%s" % table_name, (column_name,))
+        return cursor.fetchone() is not None
+    except Exception:
+        return False
+
+def _first_existing_column(cursor, table_name: str, candidates: list[str]) -> str | None:
+    for candidate in candidates:
+        if _column_exists(cursor, table_name, candidate):
+            return candidate
+    return None
+
 @estimaciones_bp.route('/', methods=['GET'])
 @jwt_required()
 def listar_estimaciones():
@@ -962,6 +976,39 @@ def obtener_dashboard_estimaciones():
 # VISTA DETALLADA DE CUARTELES
 # ============================================================================
 
+@estimaciones_bp.route('/debug-columnas/<string:tabla>', methods=['GET'])
+@jwt_required()
+def debug_columnas_tabla(tabla):
+    """
+    Endpoint temporal para debuggear columnas de una tabla
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Obtener todas las columnas de la tabla
+        cursor.execute(f"SHOW COLUMNS FROM {tabla}")
+        columnas = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": f"Columnas de {tabla} obtenidas",
+            "data": {
+                "tabla": tabla,
+                "columnas": [col['Field'] for col in columnas]
+            }
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"Error obteniendo columnas de {tabla}",
+            "error": str(e)
+        }), 500
+
 @estimaciones_bp.route('/cuartel/<int:cuartel_id>/informacion-general', methods=['GET'])
 @jwt_required()
 def obtener_informacion_general_cuartel(cuartel_id):
@@ -993,7 +1040,7 @@ def obtener_informacion_general_cuartel(cuartel_id):
                 "message": "Cuartel no encontrado o sin acceso"
             }), 404
         
-        # Obtener información detallada del cuartel
+        # Obtener información detallada del cuartel (versión simplificada)
         info_query = """
             SELECT 
                 c.id,
@@ -1001,7 +1048,7 @@ def obtener_informacion_general_cuartel(cuartel_id):
                 v.nombre as variedad,
                 c.superficie as superficie_productiva,
                 c.ano_plantacion as año_plantacion,
-                c.plantas_ha_teoricas,
+                NULL as plantas_ha_teoricas,
                 c.id_portainjerto as portainjerto,
                 CASE 
                     WHEN c.id_estadoproductivo = 1 THEN 'Productivo'
@@ -1018,7 +1065,7 @@ def obtener_informacion_general_cuartel(cuartel_id):
             INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
             WHERE c.id = %s
         """
-        
+
         cursor.execute(info_query, (cuartel_id,))
         cuartel_info = cursor.fetchone()
         
@@ -1095,21 +1142,40 @@ def obtener_estimaciones_cuartel_detalle(cuartel_id):
             }), 200
         
         # Obtener estimaciones del cuartel
-        estimaciones_query = """
-            SELECT 
-                e.id,
-                t.nombre as tipo_estimacion,
-                e.embalaje_cajas as estimacion_cajas_ha,
-                e.embalaje_cajas as estimacion,
-                DATE(e.hora_registro) as fecha,
-                u.nombre as usuario
-            FROM estimacion_fact_registroadministradores e
-            LEFT JOIN estimacion_dim_tipo t ON e.id_tipoestimacion = t.id
-            LEFT JOIN general_dim_usuario u ON e.id_usuario = u.id
-            WHERE e.id_cuartel = %s AND e.id_usuario = %s
-            ORDER BY e.hora_registro DESC
-            LIMIT 50
-        """
+        # Resolver tipo de estimación de forma resiliente si la dimensión no existe
+        cursor.execute("SHOW TABLES LIKE 'estimacion_dim_tipo'")
+        tabla_dim_tipo = cursor.fetchone()
+        if tabla_dim_tipo:
+            estimaciones_query = """
+                SELECT 
+                    e.id,
+                    t.nombre as tipo_estimacion,
+                    e.embalaje_cajas as estimacion_cajas_ha,
+                    e.embalaje_cajas as estimacion,
+                    DATE(e.hora_registro) as fecha,
+                    u.nombre as usuario
+                FROM estimacion_fact_registroadministradores e
+                LEFT JOIN estimacion_dim_tipo t ON e.id_tipoestimacion = t.id
+                LEFT JOIN general_dim_usuario u ON e.id_usuario = u.id
+                WHERE e.id_cuartel = %s AND e.id_usuario = %s
+                ORDER BY e.hora_registro DESC
+                LIMIT 50
+            """
+        else:
+            estimaciones_query = """
+                SELECT 
+                    e.id,
+                    CAST(e.id_tipoestimacion AS CHAR) as tipo_estimacion,
+                    e.embalaje_cajas as estimacion_cajas_ha,
+                    e.embalaje_cajas as estimacion,
+                    DATE(e.hora_registro) as fecha,
+                    u.nombre as usuario
+                FROM estimacion_fact_registroadministradores e
+                LEFT JOIN general_dim_usuario u ON e.id_usuario = u.id
+                WHERE e.id_cuartel = %s AND e.id_usuario = %s
+                ORDER BY e.hora_registro DESC
+                LIMIT 50
+            """
         
         cursor.execute(estimaciones_query, (cuartel_id, user_id))
         estimaciones = cursor.fetchall()
@@ -1182,26 +1248,36 @@ def obtener_pautas_cuartel(cuartel_id):
             }), 200
         
         # Obtener pautas del cuartel
-        pautas_query = """
+        # Resolver columnas de estado/usuario en pauta
+        estado_col = _first_existing_column(cursor, 'conteo_fact_pauta', ['id_estado', 'estado'])
+        usuario_col = _first_existing_column(cursor, 'conteo_fact_pauta', ['id_usuario', 'usuario', 'id_evaluador'])
+        where_usuario = f"AND p.{usuario_col} = %s" if usuario_col else ""
+        select_estado = (
+            f"CASE WHEN p.{estado_col} = 1 THEN 'Completada' WHEN p.{estado_col} = 0 THEN 'Pendiente' ELSE 'Desconocida' END"
+            if estado_col else "'Desconocida'"
+        )
+        join_usuario = (
+            f"LEFT JOIN general_dim_usuario u ON p.{usuario_col} = u.id" if usuario_col else "LEFT JOIN general_dim_usuario u ON 1=0"
+        )
+        pautas_query = f"""
             SELECT 
                 p.id,
                 DATE(p.fecha) as fecha_inicio,
                 l.nombre as labor,
-                CASE 
-                    WHEN p.id_estado = 1 THEN 'Completada'
-                    WHEN p.id_estado = 0 THEN 'Pendiente'
-                    ELSE 'Desconocida'
-                END as estado,
+                {select_estado} as estado,
                 u.nombre as usuario
             FROM conteo_fact_pauta p
             LEFT JOIN conteo_dim_laborconteo l ON p.id_labor = l.id
-            LEFT JOIN general_dim_usuario u ON p.id_usuario = u.id
-            WHERE p.id_cuartel = %s AND p.id_usuario = %s
+            {join_usuario}
+            WHERE p.id_cuartel = %s {where_usuario}
             ORDER BY p.fecha DESC
             LIMIT 50
         """
         
-        cursor.execute(pautas_query, (cuartel_id, user_id))
+        params = [cuartel_id]
+        if usuario_col:
+            params.append(user_id)
+        cursor.execute(pautas_query, tuple(params))
         pautas = cursor.fetchall()
         
         cursor.close()
@@ -1359,7 +1435,7 @@ def obtener_mapeos_cuartel(cuartel_id):
         mapeos_query = """
             SELECT 
                 m.id,
-                DATE(m.fecha) as fecha,
+                DATE(m.hora_registro) as fecha,
                 m.plantas_7,
                 m.plantas_5,
                 m.plantas_3,
@@ -1367,7 +1443,7 @@ def obtener_mapeos_cuartel(cuartel_id):
             FROM mapeo_fact_registromapeo m
             LEFT JOIN general_dim_usuario u ON m.id_usuario = u.id
             WHERE m.id_cuartel = %s AND m.id_usuario = %s
-            ORDER BY m.fecha DESC
+            ORDER BY m.hora_registro DESC
             LIMIT 50
         """
         
@@ -1442,16 +1518,18 @@ def obtener_frutos_ramilla_historico_cuartel(cuartel_id):
             }), 200
         
         # Obtener histórico de frutos/ramilla del cuartel
-        frutos_query = """
+        # Resolver columna de fecha en historial de frutos/ramilla
+        fecha_frutos_col = _first_existing_column(cursor, 'produccion_fact_pesoracimohistorico', ['fecha', 'fecha_registro', 'hora_registro']) or 'fecha'
+        frutos_query = f"""
             SELECT 
                 p.id,
                 p.peso_racimo as frutos_ramilla,
-                DATE(p.fecha) as fecha,
+                DATE(p.{fecha_frutos_col}) as fecha,
                 u.nombre as usuario
             FROM produccion_fact_pesoracimohistorico p
             LEFT JOIN general_dim_usuario u ON p.id_usuario = u.id
             WHERE p.id_cuartel = %s AND p.id_usuario = %s
-            ORDER BY p.fecha DESC
+            ORDER BY p.{fecha_frutos_col} DESC
             LIMIT 50
         """
         
