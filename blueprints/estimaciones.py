@@ -1431,17 +1431,21 @@ def obtener_mapeos_cuartel(cuartel_id):
                 }
             }), 200
         
-        # Obtener mapeos del cuartel (versión simplificada)
+        # Obtener mapeos del cuartel con conteo real de plantas por tipo
         mapeos_query = """
             SELECT 
                 rm.id,
                 DATE(rm.fecha_inicio) as fecha,
-                'N/A' as plantas_7,
-                'N/A' as plantas_5,
-                'N/A' as plantas_3,
-                'N/A' as usuario
+                COUNT(CASE WHEN r.id_tipoplanta = 7 THEN 1 END) as plantas_7,
+                COUNT(CASE WHEN r.id_tipoplanta = 5 THEN 1 END) as plantas_5,
+                COUNT(CASE WHEN r.id_tipoplanta = 3 THEN 1 END) as plantas_3,
+                COUNT(r.id) as total_plantas,
+                u.nombre as usuario
             FROM mapeo_fact_registromapeo rm
+            LEFT JOIN mapeo_fact_registro r ON rm.id = r.id_registro_mapeo
+            LEFT JOIN general_dim_usuario u ON r.id_evaluador = u.id
             WHERE rm.id_cuartel = %s
+            GROUP BY rm.id, rm.fecha_inicio, u.nombre
             ORDER BY rm.fecha_inicio DESC
             LIMIT 50
         """
