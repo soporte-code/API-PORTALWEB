@@ -1435,7 +1435,7 @@ def obtener_mapeos_cuartel(cuartel_id):
         mapeos_query = """
             SELECT 
                 rm.id,
-                DATE(rm.fecha_creacion) as fecha,
+                DATE(rm.fecha_inicio) as fecha,
                 COUNT(CASE WHEN tp.nombre = '7' OR tp.id = '7' THEN 1 END) as plantas_7,
                 COUNT(CASE WHEN tp.nombre = '5' OR tp.id = '5' THEN 1 END) as plantas_5,
                 COUNT(CASE WHEN tp.nombre = '3' OR tp.id = '3' THEN 1 END) as plantas_3,
@@ -1445,8 +1445,8 @@ def obtener_mapeos_cuartel(cuartel_id):
             LEFT JOIN mapeo_dim_tipoplanta tp ON r.id_tipoplanta = tp.id
             LEFT JOIN general_dim_usuario u ON r.id_evaluador = u.id
             WHERE rm.id_cuartel = %s
-            GROUP BY rm.id, rm.fecha_creacion, u.nombre
-            ORDER BY rm.fecha_creacion DESC
+            GROUP BY rm.id, rm.fecha_inicio, u.nombre
+            ORDER BY rm.fecha_inicio DESC
             LIMIT 50
         """
         
