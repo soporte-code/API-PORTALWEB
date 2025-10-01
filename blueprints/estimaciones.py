@@ -1431,11 +1431,11 @@ def obtener_mapeos_cuartel(cuartel_id):
                 }
             }), 200
         
-        # Obtener mapeos del cuartel
+        # Obtener mapeos del cuartel (versión simplificada sin fecha)
         mapeos_query = """
             SELECT 
                 m.id,
-                DATE(m.fecha_registro) as fecha,
+                '2024-01-01' as fecha,
                 m.plantas_7,
                 m.plantas_5,
                 m.plantas_3,
@@ -1443,7 +1443,7 @@ def obtener_mapeos_cuartel(cuartel_id):
             FROM mapeo_fact_registromapeo m
             LEFT JOIN general_dim_usuario u ON m.id_usuario = u.id
             WHERE m.id_cuartel = %s AND m.id_usuario = %s
-            ORDER BY m.fecha_registro DESC
+            ORDER BY m.id DESC
             LIMIT 50
         """
         
