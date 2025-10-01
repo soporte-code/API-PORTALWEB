@@ -1434,16 +1434,19 @@ def obtener_mapeos_cuartel(cuartel_id):
         # Obtener mapeos del cuartel con conteo de plantas por tipo
         mapeos_query = """
             SELECT 
-                m.id,
-                '2024-01-01' as fecha,
-                COUNT(CASE WHEN m.tipo_planta = '7' OR m.tipo_planta = 7 THEN 1 END) as plantas_7,
-                COUNT(CASE WHEN m.tipo_planta = '5' OR m.tipo_planta = 5 THEN 1 END) as plantas_5,
-                COUNT(CASE WHEN m.tipo_planta = '3' OR m.tipo_planta = 3 THEN 1 END) as plantas_3,
-                'N/A' as usuario
-            FROM mapeo_fact_registromapeo m
-            WHERE m.id_cuartel = %s
-            GROUP BY m.id
-            ORDER BY m.id DESC
+                rm.id,
+                DATE(rm.fecha_creacion) as fecha,
+                COUNT(CASE WHEN tp.nombre = '7' OR tp.id = '7' THEN 1 END) as plantas_7,
+                COUNT(CASE WHEN tp.nombre = '5' OR tp.id = '5' THEN 1 END) as plantas_5,
+                COUNT(CASE WHEN tp.nombre = '3' OR tp.id = '3' THEN 1 END) as plantas_3,
+                u.nombre as usuario
+            FROM mapeo_fact_registromapeo rm
+            LEFT JOIN mapeo_fact_registro r ON rm.id = r.id_registro_mapeo
+            LEFT JOIN mapeo_dim_tipoplanta tp ON r.id_tipoplanta = tp.id
+            LEFT JOIN general_dim_usuario u ON rm.id_usuario = u.id
+            WHERE rm.id_cuartel = %s
+            GROUP BY rm.id, rm.fecha_creacion, u.nombre
+            ORDER BY rm.fecha_creacion DESC
             LIMIT 50
         """
         
