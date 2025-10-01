@@ -2,6 +2,8 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from utils.db import get_db_connection
 import logging
+import uuid
+from datetime import datetime
 
 # Configurar logging
 logger = logging.getLogger(__name__)
@@ -1784,6 +1786,330 @@ def crear_estimaciones_masivo():
         
     except Exception as e:
         logger.error(f"Error creando estimaciones masivo: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+# =============================================================================
+# ENDPOINTS DE CREACIÓN DE DATOS PARA CUARTELES
+# =============================================================================
+
+@estimaciones_bp.route('/cuartel/<int:cuartel_id>/estimaciones', methods=['POST'])
+@jwt_required()
+def crear_estimacion_cuartel(cuartel_id):
+    """
+    Crear nueva estimación para un cuartel específico
+    """
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        # Validar datos requeridos
+        campos_requeridos = ['tipo_estimacion', 'estimacion_cajas_ha', 'fecha']
+        for campo in campos_requeridos:
+            if campo not in data:
+                return jsonify({
+                    "success": False,
+                    "message": f"Campo requerido: {campo}"
+                }), 400
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Verificar que el cuartel pertenece a la sucursal activa del usuario
+        verificar_cuartel_query = """
+            SELECT 1 FROM general_dim_cuartel c
+            INNER JOIN general_dim_sucursal s ON c.id_sucursal = s.id
+            INNER JOIN general_dim_usuario u ON s.id = u.id_sucursalactiva
+            WHERE c.id = %s AND u.id = %s
+        """
+        cursor.execute(verificar_cuartel_query, (cuartel_id, user_id))
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Cuartel no encontrado o sin acceso"
+            }), 404
+        
+        # Generar UUID para la estimación
+        estimacion_id = str(uuid.uuid4())
+        
+        # Insertar nueva estimación
+        insert_query = """
+            INSERT INTO estimacion_fact_registroadministradores (
+                id, id_tipoestimacion, estimacion_cajas_ha, estimacion, 
+                fecha, id_usuario, id_cuartel, observaciones, fecha_creacion
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+        """
+        
+        cursor.execute(insert_query, (
+            estimacion_id,
+            data['tipo_estimacion'],
+            data['estimacion_cajas_ha'],
+            data.get('estimacion', 0),
+            data['fecha'],
+            user_id,
+            cuartel_id,
+            data.get('observaciones', '')
+        ))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Estimación creada exitosamente",
+            "data": {
+                "id": estimacion_id,
+                "fecha_creacion": datetime.now().isoformat()
+            }
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Error creando estimación: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@estimaciones_bp.route('/cuartel/<int:cuartel_id>/rendimiento-packing', methods=['POST'])
+@jwt_required()
+def crear_rendimiento_packing_cuartel(cuartel_id):
+    """
+    Agregar nuevo rendimiento packing para un cuartel específico
+    """
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        # Validar datos requeridos
+        campos_requeridos = ['rendimiento', 'fecha']
+        for campo in campos_requeridos:
+            if campo not in data:
+                return jsonify({
+                    "success": False,
+                    "message": f"Campo requerido: {campo}"
+                }), 400
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Verificar que el cuartel pertenece a la sucursal activa del usuario
+        verificar_cuartel_query = """
+            SELECT 1 FROM general_dim_cuartel c
+            INNER JOIN general_dim_sucursal s ON c.id_sucursal = s.id
+            INNER JOIN general_dim_usuario u ON s.id = u.id_sucursalactiva
+            WHERE c.id = %s AND u.id = %s
+        """
+        cursor.execute(verificar_cuartel_query, (cuartel_id, user_id))
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Cuartel no encontrado o sin acceso"
+            }), 404
+        
+        # Generar UUID para el rendimiento
+        rendimiento_id = str(uuid.uuid4())
+        
+        # Insertar nuevo rendimiento packing
+        insert_query = """
+            INSERT INTO estimacion_fact_rendimientocuartel (
+                id, rendimiento, fecha, id_usuario, id_cuartel, 
+                observaciones, fecha_creacion
+            ) VALUES (%s, %s, %s, %s, %s, %s, NOW())
+        """
+        
+        cursor.execute(insert_query, (
+            rendimiento_id,
+            data['rendimiento'],
+            data['fecha'],
+            user_id,
+            cuartel_id,
+            data.get('observaciones', '')
+        ))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Rendimiento packing agregado exitosamente",
+            "data": {
+                "id": rendimiento_id,
+                "fecha_creacion": datetime.now().isoformat()
+            }
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Error creando rendimiento packing: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@estimaciones_bp.route('/cuartel/<int:cuartel_id>/calibres-historicos', methods=['POST'])
+@jwt_required()
+def crear_calibre_historico_cuartel(cuartel_id):
+    """
+    Agregar nuevo calibre histórico para un cuartel específico
+    """
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        # Validar datos requeridos
+        campos_requeridos = ['calibre', 'cantidad', 'fecha']
+        for campo in campos_requeridos:
+            if campo not in data:
+                return jsonify({
+                    "success": False,
+                    "message": f"Campo requerido: {campo}"
+                }), 400
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Verificar que el cuartel pertenece a la sucursal activa del usuario
+        verificar_cuartel_query = """
+            SELECT 1 FROM general_dim_cuartel c
+            INNER JOIN general_dim_sucursal s ON c.id_sucursal = s.id
+            INNER JOIN general_dim_usuario u ON s.id = u.id_sucursalactiva
+            WHERE c.id = %s AND u.id = %s
+        """
+        cursor.execute(verificar_cuartel_query, (cuartel_id, user_id))
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Cuartel no encontrado o sin acceso"
+            }), 404
+        
+        # Generar UUID para el calibre
+        calibre_id = str(uuid.uuid4())
+        
+        # Insertar nuevo calibre histórico
+        insert_query = """
+            INSERT INTO produccion_dim_calibretipo (
+                id, calibre, cantidad, fecha, id_usuario, id_cuartel, 
+                observaciones, fecha_creacion
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+        """
+        
+        cursor.execute(insert_query, (
+            calibre_id,
+            data['calibre'],
+            data['cantidad'],
+            data['fecha'],
+            user_id,
+            cuartel_id,
+            data.get('observaciones', '')
+        ))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Calibre histórico agregado exitosamente",
+            "data": {
+                "id": calibre_id,
+                "fecha_creacion": datetime.now().isoformat()
+            }
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Error creando calibre histórico: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "Error interno del servidor",
+            "error": str(e)
+        }), 500
+
+@estimaciones_bp.route('/cuartel/<int:cuartel_id>/mapeos', methods=['POST'])
+@jwt_required()
+def crear_mapeo_cuartel(cuartel_id):
+    """
+    Crear nuevo mapeo para un cuartel específico
+    """
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        # Validar datos requeridos
+        campos_requeridos = ['fecha_inicio']
+        for campo in campos_requeridos:
+            if campo not in data:
+                return jsonify({
+                    "success": False,
+                    "message": f"Campo requerido: {campo}"
+                }), 400
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Verificar que el cuartel pertenece a la sucursal activa del usuario
+        verificar_cuartel_query = """
+            SELECT 1 FROM general_dim_cuartel c
+            INNER JOIN general_dim_sucursal s ON c.id_sucursal = s.id
+            INNER JOIN general_dim_usuario u ON s.id = u.id_sucursalactiva
+            WHERE c.id = %s AND u.id = %s
+        """
+        cursor.execute(verificar_cuartel_query, (cuartel_id, user_id))
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Cuartel no encontrado o sin acceso"
+            }), 404
+        
+        # Generar UUID para el mapeo
+        mapeo_id = str(uuid.uuid4())
+        
+        # Insertar nuevo mapeo
+        insert_query = """
+            INSERT INTO mapeo_fact_registromapeo (
+                id, id_temporada, id_cuartel, fecha_inicio, fecha_termino, 
+                id_estado, observaciones, fecha_creacion
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+        """
+        
+        cursor.execute(insert_query, (
+            mapeo_id,
+            data.get('id_temporada', 1),  # Temporada por defecto
+            cuartel_id,
+            data['fecha_inicio'],
+            data.get('fecha_termino', data['fecha_inicio']),  # Mismo día por defecto
+            1,  # Estado activo
+            data.get('observaciones', '')
+        ))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Mapeo creado exitosamente",
+            "data": {
+                "id": mapeo_id,
+                "fecha_creacion": datetime.now().isoformat()
+            }
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Error creando mapeo: {str(e)}")
         return jsonify({
             "success": False,
             "message": "Error interno del servidor",
