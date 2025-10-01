@@ -1443,7 +1443,7 @@ def obtener_mapeos_cuartel(cuartel_id):
             FROM mapeo_fact_registromapeo rm
             LEFT JOIN mapeo_fact_registro r ON rm.id = r.id_registro_mapeo
             LEFT JOIN mapeo_dim_tipoplanta tp ON r.id_tipoplanta = tp.id
-            LEFT JOIN general_dim_usuario u ON rm.id_usuario = u.id
+            LEFT JOIN general_dim_usuario u ON r.id_evaluador = u.id
             WHERE rm.id_cuartel = %s
             GROUP BY rm.id, rm.fecha_creacion, u.nombre
             ORDER BY rm.fecha_creacion DESC
