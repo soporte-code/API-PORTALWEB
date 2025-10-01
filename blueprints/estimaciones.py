@@ -1021,14 +1021,14 @@ def obtener_informacion_general_cuartel(cuartel_id):
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         
-        # Verificar que el cuartel pertenece a la sucursal del usuario
+        # Verificar que el cuartel pertenece a la sucursal activa del usuario
         verificar_cuartel_query = """
             SELECT 1
             FROM general_dim_cuartel c
             INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
             INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
-            INNER JOIN usuario_pivot_sucursal_usuario usu ON s.id = usu.id_sucursal
-            WHERE c.id = %s AND usu.id_usuario = %s
+            INNER JOIN general_dim_usuario u ON s.id = u.id_sucursalactiva
+            WHERE c.id = %s AND u.id = %s
         """
         
         cursor.execute(verificar_cuartel_query, (cuartel_id, user_id))
@@ -1106,14 +1106,14 @@ def obtener_estimaciones_cuartel_detalle(cuartel_id):
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         
-        # Verificar que el cuartel pertenece a la sucursal del usuario
+        # Verificar que el cuartel pertenece a la sucursal activa del usuario
         verificar_cuartel_query = """
             SELECT 1
             FROM general_dim_cuartel c
             INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
             INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
-            INNER JOIN usuario_pivot_sucursal_usuario usu ON s.id = usu.id_sucursal
-            WHERE c.id = %s AND usu.id_usuario = %s
+            INNER JOIN general_dim_usuario u ON s.id = u.id_sucursalactiva
+            WHERE c.id = %s AND u.id = %s
         """
         
         cursor.execute(verificar_cuartel_query, (cuartel_id, user_id))
@@ -1212,14 +1212,14 @@ def obtener_pautas_cuartel(cuartel_id):
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         
-        # Verificar que el cuartel pertenece a la sucursal del usuario
+        # Verificar que el cuartel pertenece a la sucursal activa del usuario
         verificar_cuartel_query = """
             SELECT 1
             FROM general_dim_cuartel c
             INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
             INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
-            INNER JOIN usuario_pivot_sucursal_usuario usu ON s.id = usu.id_sucursal
-            WHERE c.id = %s AND usu.id_usuario = %s
+            INNER JOIN general_dim_usuario u ON s.id = u.id_sucursalactiva
+            WHERE c.id = %s AND u.id = %s
         """
         
         cursor.execute(verificar_cuartel_query, (cuartel_id, user_id))
@@ -1312,14 +1312,14 @@ def obtener_rendimiento_packing_cuartel(cuartel_id):
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         
-        # Verificar que el cuartel pertenece a la sucursal del usuario
+        # Verificar que el cuartel pertenece a la sucursal activa del usuario
         verificar_cuartel_query = """
             SELECT 1
             FROM general_dim_cuartel c
             INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
             INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
-            INNER JOIN usuario_pivot_sucursal_usuario usu ON s.id = usu.id_sucursal
-            WHERE c.id = %s AND usu.id_usuario = %s
+            INNER JOIN general_dim_usuario u ON s.id = u.id_sucursalactiva
+            WHERE c.id = %s AND u.id = %s
         """
         
         cursor.execute(verificar_cuartel_query, (cuartel_id, user_id))
@@ -1396,14 +1396,14 @@ def obtener_mapeos_cuartel(cuartel_id):
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         
-        # Verificar que el cuartel pertenece a la sucursal del usuario
+        # Verificar que el cuartel pertenece a la sucursal activa del usuario
         verificar_cuartel_query = """
             SELECT 1
             FROM general_dim_cuartel c
             INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
             INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
-            INNER JOIN usuario_pivot_sucursal_usuario usu ON s.id = usu.id_sucursal
-            WHERE c.id = %s AND usu.id_usuario = %s
+            INNER JOIN general_dim_usuario u ON s.id = u.id_sucursalactiva
+            WHERE c.id = %s AND u.id = %s
         """
         
         cursor.execute(verificar_cuartel_query, (cuartel_id, user_id))
@@ -1482,14 +1482,14 @@ def obtener_frutos_ramilla_historico_cuartel(cuartel_id):
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         
-        # Verificar que el cuartel pertenece a la sucursal del usuario
+        # Verificar que el cuartel pertenece a la sucursal activa del usuario
         verificar_cuartel_query = """
             SELECT 1
             FROM general_dim_cuartel c
             INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
             INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
-            INNER JOIN usuario_pivot_sucursal_usuario usu ON s.id = usu.id_sucursal
-            WHERE c.id = %s AND usu.id_usuario = %s
+            INNER JOIN general_dim_usuario u ON s.id = u.id_sucursalactiva
+            WHERE c.id = %s AND u.id = %s
         """
         
         cursor.execute(verificar_cuartel_query, (cuartel_id, user_id))
@@ -1568,14 +1568,14 @@ def obtener_calibres_historicos_cuartel(cuartel_id):
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         
-        # Verificar que el cuartel pertenece a la sucursal del usuario
+        # Verificar que el cuartel pertenece a la sucursal activa del usuario
         verificar_cuartel_query = """
             SELECT 1
             FROM general_dim_cuartel c
             INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
             INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
-            INNER JOIN usuario_pivot_sucursal_usuario usu ON s.id = usu.id_sucursal
-            WHERE c.id = %s AND usu.id_usuario = %s
+            INNER JOIN general_dim_usuario u ON s.id = u.id_sucursalactiva
+            WHERE c.id = %s AND u.id = %s
         """
         
         cursor.execute(verificar_cuartel_query, (cuartel_id, user_id))
