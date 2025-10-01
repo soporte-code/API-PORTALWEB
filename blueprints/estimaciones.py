@@ -1435,7 +1435,7 @@ def obtener_mapeos_cuartel(cuartel_id):
         mapeos_query = """
             SELECT 
                 m.id,
-                DATE(m.hora_registro) as fecha,
+                DATE(m.fecha_registro) as fecha,
                 m.plantas_7,
                 m.plantas_5,
                 m.plantas_3,
@@ -1443,7 +1443,7 @@ def obtener_mapeos_cuartel(cuartel_id):
             FROM mapeo_fact_registromapeo m
             LEFT JOIN general_dim_usuario u ON m.id_usuario = u.id
             WHERE m.id_cuartel = %s AND m.id_usuario = %s
-            ORDER BY m.hora_registro DESC
+            ORDER BY m.fecha_registro DESC
             LIMIT 50
         """
         
