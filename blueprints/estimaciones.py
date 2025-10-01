@@ -1431,7 +1431,7 @@ def obtener_mapeos_cuartel(cuartel_id):
                 }
             }), 200
         
-        # Obtener mapeos del cuartel (solo datos básicos disponibles)
+        # Obtener mapeos del cuartel (consulta básica)
         mapeos_query = """
             SELECT 
                 m.id,
@@ -1441,12 +1441,10 @@ def obtener_mapeos_cuartel(cuartel_id):
                 'N/A' as plantas_3,
                 'N/A' as usuario
             FROM mapeo_fact_registromapeo m
-            WHERE m.id_cuartel = %s
-            ORDER BY m.id DESC
             LIMIT 50
         """
         
-        cursor.execute(mapeos_query, (cuartel_id,))
+        cursor.execute(mapeos_query)
         mapeos = cursor.fetchall()
         
         cursor.close()
