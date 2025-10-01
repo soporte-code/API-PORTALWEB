@@ -17,7 +17,7 @@ def _column_exists(cursor, table_name: str, column_name: str) -> bool:
     except Exception:
         return False
 
-def _first_existing_column(cursor, table_name: str, candidates: list[str]) -> str | None:
+def _first_existing_column(cursor, table_name: str, candidates: list) -> str:
     for candidate in candidates:
         if _column_exists(cursor, table_name, candidate):
             return candidate
