@@ -1436,9 +1436,9 @@ def obtener_mapeos_cuartel(cuartel_id):
             SELECT 
                 rm.id,
                 DATE(rm.fecha_inicio) as fecha,
-                COUNT(CASE WHEN tp.factor_productivo > 0 AND tp.id = '04' THEN 1 END) as plantas_7,
-                COUNT(CASE WHEN tp.factor_productivo > 0 AND tp.id = '03' THEN 1 END) as plantas_5,
-                COUNT(CASE WHEN tp.factor_productivo > 0 AND tp.id = '02' THEN 1 END) as plantas_3,
+                COUNT(CASE WHEN tp.factor_productivo > 0 AND tp.id = 4 THEN 1 END) as plantas_7,
+                COUNT(CASE WHEN tp.factor_productivo > 0 AND tp.id = 3 THEN 1 END) as plantas_5,
+                COUNT(CASE WHEN tp.factor_productivo > 0 AND tp.id = 2 THEN 1 END) as plantas_3,
                 COUNT(CASE WHEN tp.factor_productivo > 0 THEN 1 END) as total_plantas_productivas,
                 COUNT(r.id) as total_plantas,
                 u.nombre as usuario
