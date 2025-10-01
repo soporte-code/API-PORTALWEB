@@ -1431,20 +1431,23 @@ def obtener_mapeos_cuartel(cuartel_id):
                 }
             }), 200
         
-        # Obtener mapeos del cuartel (consulta básica)
+        # Obtener mapeos del cuartel con conteo de plantas por tipo
         mapeos_query = """
             SELECT 
                 m.id,
                 '2024-01-01' as fecha,
-                'N/A' as plantas_7,
-                'N/A' as plantas_5,
-                'N/A' as plantas_3,
+                COUNT(CASE WHEN m.tipo_planta = '7' OR m.tipo_planta = 7 THEN 1 END) as plantas_7,
+                COUNT(CASE WHEN m.tipo_planta = '5' OR m.tipo_planta = 5 THEN 1 END) as plantas_5,
+                COUNT(CASE WHEN m.tipo_planta = '3' OR m.tipo_planta = 3 THEN 1 END) as plantas_3,
                 'N/A' as usuario
             FROM mapeo_fact_registromapeo m
+            WHERE m.id_cuartel = %s
+            GROUP BY m.id
+            ORDER BY m.id DESC
             LIMIT 50
         """
         
-        cursor.execute(mapeos_query)
+        cursor.execute(mapeos_query, (cuartel_id,))
         mapeos = cursor.fetchall()
         
         cursor.close()
