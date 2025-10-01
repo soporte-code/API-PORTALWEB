@@ -1442,7 +1442,7 @@ def obtener_mapeos_cuartel(cuartel_id):
                 COUNT(r.id) as total_plantas,
                 u.nombre as usuario
             FROM mapeo_fact_registromapeo rm
-            LEFT JOIN mapeo_fact_registro r ON rm.id = r.id_registro_mapeo
+            LEFT JOIN mapeo_fact_registro r ON rm.id = r.id_mapeo
             LEFT JOIN general_dim_usuario u ON r.id_evaluador = u.id
             WHERE rm.id_cuartel = %s
             GROUP BY rm.id, rm.fecha_inicio, u.nombre
