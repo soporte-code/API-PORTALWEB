@@ -1269,7 +1269,8 @@ def obtener_pautas_cuartel(cuartel_id):
                 {select_estado} as estado,
                 u.nombre as usuario
             FROM conteo_fact_pauta p
-            LEFT JOIN conteo_dim_laborconteo l ON p.id_labor = l.id
+            LEFT JOIN conteo_pivot_labor_especie le ON CAST(le.id AS CHAR) = p.id_conteotipo
+            LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
             {join_usuario}
             WHERE p.id_cuartel = %s {where_usuario}
             ORDER BY p.fecha DESC
