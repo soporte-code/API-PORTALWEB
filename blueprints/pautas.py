@@ -2,6 +2,8 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from utils.db import get_db_connection
 import logging
+import uuid
+from datetime import date
 
 # Configurar logging
 logger = logging.getLogger(__name__)
@@ -1347,6 +1349,134 @@ def crear_pauta():
             "message": "Error interno del servidor",
             "error": str(e)
         }), 500
+
+@pautas_bp.route('/pautas-completa', methods=['POST'])
+@jwt_required()
+def crear_pauta_completa():
+    """
+    Crear una pauta completa (cabecera + detalles) en una sola transacción.
+    Clave: manejar id_conteotipo como STR en fact pero comparar con INT en config usando CAST.
+    Detalles de entrada mínima:
+    - id_conteotipo (str), id_cuartel (bigint), id_temporada (int)
+    - fecha (opcional, default hoy)
+    """
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+
+        campos_requeridos = ['id_conteotipo', 'id_cuartel'] # El código aún requiere id_temporada, así que lo dejamos
+        for campo in campos_requeridos:
+            if campo not in data:
+                return jsonify({"success": False, "message": f"Campo requerido: {campo}"}), 400
+
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        hoy = date.today()
+
+        pauta_id = str(uuid.uuid4())
+        insert_pauta_query = """
+            INSERT INTO conteo_fact_pauta (
+                id,
+                id_conteotipo,
+                id_usuario,
+                id_temporada,
+                fecha,
+                hora_registro,
+                id_cuartel
+            ) VALUES (
+                %s,%s,%s,%s,%s,CURTIME(),%s
+            )
+        """
+        cursor.execute(
+            insert_pauta_query,
+            (
+                pauta_id,
+                str(data['id_conteotipo']),
+                str(user_id),
+                int(data.get('id_temporada',1)),
+                data.get('fecha', hoy),
+                int(data['id_cuartel']),
+            ),
+        )
+
+        config_query = """
+            SELECT id_atributo, id_tipoplanta
+            FROM conteo_dim_configpauta
+            WHERE CAST(id_conteotipo AS CHAR) = %s
+        """
+        cursor.execute(config_query, (str(data['id_conteotipo']),))
+        configs = cursor.fetchall()
+
+        atributos = []
+        detalles_insertados = []
+
+        for cfg in configs:
+            id_atributo = int(cfg['id_atributo'])
+            id_tipoplanta = str(cfg['id_tipoplanta'])
+            instancia = {'index': 1, 'valor': None}
+            atributos.append(
+                {'id_atributo': id_atributo, 'id_tipoplanta': id_tipoplanta, 'instancias': [instancia]}
+            )
+
+        detalles_raw = data.get('detalles', [])
+        for det in detalles_raw:
+            id_atributo = int(det.get('id_atributo'))
+            id_tipoplanta = str(det.get('id_tipoplanta', ''))
+            valor_atributo = float(det.get('valor_atributo', 0.0))
+            valido = any(
+                c['id_atributo'] == id_atributo and str(c['id_tipoplanta']) == id_tipoplanta
+                for c in configs
+            )
+            if not valido:
+                continue
+            det_id = str(uuid.uuid4())
+            insert_det_query = """
+                INSERT INTO conteo_fact_detallepauta (
+                    id,
+                    id_pauta,
+                    id_atributo,
+                    id_tipoplanta,
+                    valor_atributo
+                ) VALUES (%s,%s,%s,%s,%s)
+            """
+            cursor.execute(
+                insert_det_query,
+                (det_id, pauta_id, id_atributo, id_tipoplanta, valor_atributo),
+            )
+            detalles_insertados.append(
+                {
+                    'id': det_id,
+                    'id_atributo': id_atributo,
+                    'id_tipoplanta': id_tipoplanta,
+                    'valor_atributo': valor_atributo,
+                }
+            )
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return jsonify(
+            {
+                'success': True,
+                'message': 'Pauta completa creada exitosamente',
+                'data': {'pauta_id': pauta_id, 'fecha': data.get('fecha', hoy.isoformat())},
+                'vista': {
+                    'pauta': {
+                        'id': pauta_id,
+                        'cuartel_id': int(data['id_cuartel']),
+                        'id_conteotipo': str(data['id_conteotipo']),
+                    },
+                    'atributos': atributos,
+                },
+                'detalles_insertados': detalles_insertados,
+            }
+        ), 201
+
+    except Exception as e:
+        logger.error(f"Error creando pauta completa: {str(e)}")
+        return jsonify({"success": False, "message": "Error interno del servidor", "error": str(e)}), 500
 
 @pautas_bp.route('/pautas/<string:pauta_id>', methods=['GET'])
 @jwt_required()
