@@ -1095,7 +1095,10 @@ def generar_formulario_dinamico(labor_id, especie_id):
         # Obtener información de labor y especie
         info_query = """
             SELECT 
+                le.id as id,               -- id_conteotipo (pivot)
+                l.id as id_labor,
                 l.nombre as nombre_labor,
+                e.id as id_especie,
                 e.nombre as nombre_especie,
                 e.caja_equivalente
             FROM conteo_pivot_labor_especie le
@@ -1130,6 +1133,7 @@ def generar_formulario_dinamico(labor_id, especie_id):
             LEFT JOIN mapeo_dim_tipoplanta tp ON LPAD(cp.id_tipoplanta, 2, '0') = tp.id
             LEFT JOIN conteo_pivot_labor_especie le ON cp.id_conteotipo = le.id
             WHERE le.id_labor = %s AND le.id_especie = %s
+            GROUP BY cp.id, cp.id_atributo, cp.id_tipoplanta, a.nombre, tp.nombre, tp.factor_productivo, tp.descripcion
             ORDER BY a.nombre
         """
         
