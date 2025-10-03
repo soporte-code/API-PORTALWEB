@@ -1267,10 +1267,14 @@ def obtener_pautas_cuartel(cuartel_id):
                 DATE(p.fecha) as fecha_inicio,
                 l.nombre as labor,
                 {select_estado} as estado,
-                u.nombre as usuario
+                u.nombre as usuario,
+                COALESCE(p.id_temporada, 1) as temporada,
+                COALESCE(p.id_temporada, 1) as id_temporada,
+                COALESCE(t.temporada, '2024-2025') as nombre_temporada
             FROM conteo_fact_pauta p
             LEFT JOIN conteo_pivot_labor_especie le ON CAST(le.id AS CHAR) = p.id_conteotipo
             LEFT JOIN conteo_dim_laborconteo l ON le.id_labor = l.id
+            LEFT JOIN general_dim_temporada t ON p.id_temporada = t.id
             {join_usuario}
             WHERE p.id_cuartel = %s {where_usuario}
             ORDER BY p.fecha DESC
