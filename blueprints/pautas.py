@@ -1517,6 +1517,14 @@ def obtener_pauta(pauta_id):
         
         cursor.execute(pauta_query, (pauta_id, user_id))
         pauta = cursor.fetchone()
+        # Normalizar tipos no serializables (e.g., timedelta en hora_registro)
+        if pauta and isinstance(pauta.get('hora_registro'), (bytes, bytearray)):
+            try:
+                pauta['hora_registro'] = pauta['hora_registro'].decode('utf-8')
+            except Exception:
+                pauta['hora_registro'] = str(pauta['hora_registro'])
+        elif pauta and pauta.get('hora_registro') is not None:
+            pauta['hora_registro'] = str(pauta['hora_registro'])
         
         if not pauta:
             cursor.close()
