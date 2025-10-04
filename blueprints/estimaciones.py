@@ -1826,7 +1826,8 @@ def crear_estimacion_cuartel(cuartel_id):
         # Verificar que el cuartel pertenece a la sucursal activa del usuario
         verificar_cuartel_query = """
             SELECT 1 FROM general_dim_cuartel c
-            INNER JOIN general_dim_sucursal s ON c.id_sucursal = s.id
+            INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
+            INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
             INNER JOIN general_dim_usuario u ON s.id = u.id_sucursalactiva
             WHERE c.id = %s AND u.id = %s
         """
@@ -1987,7 +1988,8 @@ def crear_calibre_historico_cuartel(cuartel_id):
         # Verificar que el cuartel pertenece a la sucursal activa del usuario
         verificar_cuartel_query = """
             SELECT 1 FROM general_dim_cuartel c
-            INNER JOIN general_dim_sucursal s ON c.id_sucursal = s.id
+            INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
+            INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
             INNER JOIN general_dim_usuario u ON s.id = u.id_sucursalactiva
             WHERE c.id = %s AND u.id = %s
         """
@@ -2067,7 +2069,8 @@ def crear_mapeo_cuartel(cuartel_id):
         # Verificar que el cuartel pertenece a la sucursal activa del usuario
         verificar_cuartel_query = """
             SELECT 1 FROM general_dim_cuartel c
-            INNER JOIN general_dim_sucursal s ON c.id_sucursal = s.id
+            INNER JOIN general_dim_ceco ce ON c.id_ceco = ce.id
+            INNER JOIN general_dim_sucursal s ON ce.id_sucursal = s.id
             INNER JOIN general_dim_usuario u ON s.id = u.id_sucursalactiva
             WHERE c.id = %s AND u.id = %s
         """
