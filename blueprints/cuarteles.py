@@ -186,7 +186,9 @@ def listar_cuarteles_sucursal_activa():
                 c.id_estadocatastro,
                 c.id_tiposubdivision,
                 v.nombre as nombre_variedad,
+                v.nombre as variedad,
                 e.nombre as nombre_especie,
+                e.nombre as especie_nombre,
                 s.id as id_sucursal,
                 s.nombre as sucursal_nombre
             FROM general_dim_cuartel c
