@@ -1928,9 +1928,8 @@ def crear_rendimiento_packing_cuartel(cuartel_id):
         # Insertar nuevo rendimiento packing
         insert_query = """
             INSERT INTO estimacion_fact_rendimientocuartel (
-                id, rendimiento, fecha, id_usuario, id_cuartel, 
-                fecha_creacion
-            ) VALUES (%s, %s, %s, %s, %s, NOW())
+                id, rendimiento, fecha, id_usuario, id_cuartel
+            ) VALUES (%s, %s, %s, %s, %s)
         """
         
         cursor.execute(insert_query, (
