@@ -39,6 +39,52 @@ def _not_found(msg: str = "No encontrado"):
     return jsonify({"error": msg}), 404
 
 
+# ============================================================================
+# DEBUG (sin auth) — quitar despues
+# ============================================================================
+
+@admin_conteo_bp.route("/_debug/config/<int:conteotipo_id>", methods=["GET"])
+def _debug_config(conteotipo_id: int):
+    """Endpoint diagnostico, sin auth. Devuelve el raw de configconteo +
+    indica si la columna id_atributo_padre existe y su valor por fila."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = DATABASE()
+              AND table_name = 'conteo_dim_configconteo'
+              AND column_name = 'id_atributo_padre'
+            """
+        )
+        columna_existe = cursor.fetchone() is not None
+        cursor.execute(
+            """
+            SELECT cc.id, cc.id_atributo, cc.id_atributo_padre,
+                   a.nombre AS atributo_nombre,
+                   ap.nombre AS padre_nombre
+            FROM conteo_dim_configconteo cc
+            INNER JOIN conteo_dim_atributocultivo a ON cc.id_atributo = a.id
+            LEFT JOIN conteo_dim_atributocultivo ap ON cc.id_atributo_padre = ap.id
+            WHERE cc.id_conteotipo = %s
+            ORDER BY cc.orden, a.nombre
+            """,
+            (conteotipo_id,),
+        )
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return jsonify({
+            "conteotipo_id": conteotipo_id,
+            "columna_id_atributo_padre_existe": columna_existe,
+            "rows": rows,
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e), "type": type(e).__name__}), 500
+
+
 def _server_error(e: Exception):
     logger.exception("admin_conteo: %s", e)
     return jsonify({"error": str(e)}), 500
